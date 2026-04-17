@@ -222,7 +222,9 @@ def send_line_cancel_flex(cancel_type, table_name, detail, cashier, time_str):
         url = "https://api.line.me/v2/bot/message/push"
         data = json.dumps({"to": target, "messages": [{"type":"flex","altText":f"{icon} {cancel_type} — {table_name}","contents":flex}]}).encode()
         req = urllib.request.Request(url, data=data, headers={"Content-Type":"application/json","Authorization":f"Bearer {token}"})
-        urllib.request.urlopen(req, timeout=5)
+        res = urllib.request.urlopen(req, timeout=5)
+    except urllib.error.HTTPError as e:
+        print(f"[WARN] LINE cancel flex: {e.code} {e.read().decode()}")
     except Exception as e:
         print(f"[WARN] LINE cancel flex: {e}")
 
