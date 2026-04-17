@@ -1535,6 +1535,16 @@ def line_webhook():
             # 📌 กรณีที่ 1: พนักงานพิมพ์ลงทะเบียน (เช่น "ลงทะเบียน บิว")
             if msg_type == "text":
                 text = event["message"].get("text", "").strip()
+                # ตอบ Group ID กลับมาเสมอ
+                source = event.get("source", {})
+                group_id = source.get("groupId", "")
+                if group_id and reply_token:
+                    reply_url = "https://api.line.me/v2/bot/message/reply"
+                    reply_data = json.dumps({"replyToken": reply_token, "messages": [{"type": "text", "text": f"✅ Group ID ของกลุ่มนี้:\n{group_id}\n\nคัดลอกไปใส่ในตั้งค่าระบบได้เลยครับ"}]}).encode()
+                    import urllib.request
+                    req2 = urllib.request.Request(reply_url, data=reply_data, headers={"Content-Type": "application/json", "Authorization": f"Bearer {line_token}"})
+                    try: urllib.request.urlopen(req2, timeout=5)
+                    except Exception as re: print(f"[REPLY ERR] {re}")
                 if text.startswith("ลงทะเบียน "):
                     emp_name = text.replace("ลงทะเบียน ", "").strip()
                     # อัปเดต LINE ID ให้พนักงานคนนี้
