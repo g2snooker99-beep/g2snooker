@@ -167,8 +167,8 @@ def send_line_cancel(message):
         settings = {r['setting_key']: r['setting_value'] for r in
                     conn.execute("SELECT setting_key,setting_value FROM system_settings").fetchall()}
         conn.close()
-        token = settings.get('line_token','').strip()
-        target = settings.get('line_group_id','').strip() or settings.get('line_user_id','').strip()
+        token = settings.get('line_cancel_token','').strip() or settings.get('line_token','').strip()
+        target = settings.get('line_group_id','').strip()
         if not token or not target: return
         url = "https://api.line.me/v2/bot/message/push"
         data = json.dumps({"to": target, "messages": [{"type": "text", "text": message}]}).encode()
