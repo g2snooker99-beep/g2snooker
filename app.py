@@ -1,0 +1,1629 @@
+from flask import Flask, render_template, jsonify, request
+from database import get_db_connection, ALL_PERMISSIONS, SUPER_ROLES, init_db, IS_PG
+from datetime import datetime, timedelta, timezone
+import math, json
+
+TZ_OFFSET = timedelta(hours=7)  # UTC+7 Thailand
+
+def round_thb(amount):
+    """ปัดเศษสตางค์: >= 0.50 ขึ้น, < 0.50 ตัดทิ้ง"""
+    import math
+    baht = int(amount)
+    satang = amount - baht
+    return baht + 1 if satang >= 0.50 else baht
+
+app = Flask(__name__)
+
+def _get_rate(hr, rates):
+    """หาอัตราของชั่วโมงนั้น — รองรับช่วงข้ามเที่ยงคืน"""
+    for r in rates:
+        sh = r['start_hour']
+        eh = r['end_hour']
+        if sh < eh:
+            if sh <= hr < eh: return r['hourly_rate'], r['period_name']
+        elif sh == eh:
+            return r['hourly_rate'], r['period_name']
+        else:
+            if hr >= sh or hr < eh: return r['hourly_rate'], r['period_name']
+    return 120.0, 'มาตรฐาน'
+
+def _get_discount(hr, discounts):
+    """หาส่วนลดของชั่วโมงนั้น (active เท่านั้น)"""
+    for d in discounts:
+        if not d['is_active']: continue
+        sh = d['start_hour']; eh = d['end_hour']
+        if sh < eh:
+            if sh <= hr < eh: return d['discount_amount'], d['period_name']
+        elif sh == eh:
+            return d['discount_amount'], d['period_name']
+        else:
+            if hr >= sh or hr < eh: return d['discount_amount'], d['period_name']
+    return 0.0, ''
+
+def calc_fee(start, end, rates, discounts=[]):
+    _, total, _ = calc_fee_breakdown(start, end, rates, discounts)
+    return total
+
+def calc_fee_breakdown(start, end, rates, discounts=[]):
+    if not start or end <= start: return [], 0, 0
+
+    hour_blocks = []
+    curr = start
+    while curr < end:
+        next_hour = curr.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        seg_end = min(next_hour, end)
+        seg_mins = (seg_end - curr).total_seconds() / 60.0
+        thai_hr = (curr + TZ_OFFSET).hour
+        hr_rate, pname = _get_rate(thai_hr, rates)
+        disc, dname = _get_discount(thai_hr, discounts)
+        hour_blocks.append({
+            "thai_hr": thai_hr, "rate": hr_rate, "pname": pname,
+            "disc": disc, "dname": dname, "mins": seg_mins,
+            "block_start": curr
+        })
+        curr = seg_end
+
+    disc_blocks = {}
+    normal_blocks = {}
+
+    for b in hour_blocks:
+        rate_key = int(b["rate"])
+        if b["disc"] > 0:
+            key = (b["dname"], int(b["rate"]), int(b["disc"]))
+            if key not in disc_blocks: disc_blocks[key] = 0.0
+            disc_blocks[key] += b["mins"]
+        else:
+            if rate_key not in normal_blocks: normal_blocks[rate_key] = 0.0
+            normal_blocks[rate_key] += b["mins"]
+
+    breakdown = []
+    total_fee = 0.0
+    total_promo_disc = 0.0
+
+    for rate, mins in normal_blocks.items():
+        fee = round((mins / 60.0) * rate, 2)
+        total_fee += fee
+        h = int(mins // 60); m = int(mins % 60)
+        breakdown.append({"rate": rate, "label": f"ค่าโต๊ะ {rate}฿/ชม.",
+                           "mins": round(mins,1), "hours_str": f"{h}:{m:02d}",
+                           "fee": fee, "is_promo": False, "disc": 0})
+
+    for (dname, rate, disc), total_disc_mins in disc_blocks.items():
+        full_hours = int(total_disc_mins // 60)
+        remainder_mins = total_disc_mins % 60
+        if remainder_mins >= 56:
+            full_hours += 1
+            remainder_mins = 0
+        base = round((total_disc_mins / 60.0) * rate, 2)
+        promo_amount = round(full_hours * disc, 2)
+        total_fee += base
+        total_promo_disc += promo_amount
+        h = int(total_disc_mins // 60); m = int(total_disc_mins % 60)
+        breakdown.append({"rate": rate, "label": f"ค่าโต๊ะ {rate}฿/ชม.",
+                           "mins": round(total_disc_mins,1), "hours_str": f"{h}:{m:02d}",
+                           "fee": base, "is_promo": True,
+                           "disc": promo_amount, "promo_name": dname,
+                           "promo_hrs": full_hours})
+
+    net = round(total_fee - total_promo_disc, 2)
+    return breakdown, net, total_promo_disc
+
+
+# ── TELEGRAM NOTIFICATION ─────────────────────────────────────
+import urllib.request
+
+def _tg_send_to(token, chat_id, message):
+    try:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        data = json.dumps({"chat_id": chat_id, "text": message, "parse_mode": "HTML"}).encode()
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"[WARN] Telegram send {chat_id}: {e}")
+
+def _get_tg_rooms(event_type):
+    try:
+        conn = get_db_connection()
+        tok = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='telegram_token'").fetchone()
+        rooms_raw = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='telegram_rooms'").fetchone()
+        conn.close()
+        token = tok['setting_value'].strip() if tok and tok['setting_value'] else ''
+        if not token: return token, []
+        rooms = json.loads(rooms_raw['setting_value']) if rooms_raw and rooms_raw['setting_value'] else []
+        matched = [r for r in rooms if r.get(event_type)]
+        return token, matched
+    except Exception as e:
+        print(f"[WARN] get_tg_rooms: {e}")
+        return '', []
+
+def send_telegram(message, event_type='checkout'):
+    token, rooms = _get_tg_rooms(event_type)
+    if not token: return
+    if not rooms:
+        try:
+            conn = get_db_connection()
+            cid = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='telegram_chat_id'").fetchone()
+            conn.close()
+            if cid and cid['setting_value']:
+                _tg_send_to(token, cid['setting_value'], message)
+        except: pass
+        return
+    for r in rooms:
+        if r.get('chat_id','').strip():
+            _tg_send_to(token, r['chat_id'], message)
+
+def send_telegram_cancel(message):
+    send_telegram(message, event_type='cancel')
+
+def send_telegram_stock(message):
+    send_telegram(message, event_type='stock')
+
+def send_line(message):
+    _send_line_raw([{"type":"text","text":message}])
+
+def send_line_cancel(message):
+    try:
+        conn = get_db_connection()
+        settings = {r['setting_key']: r['setting_value'] for r in
+                    conn.execute("SELECT setting_key,setting_value FROM system_settings").fetchall()}
+        conn.close()
+        token = settings.get('line_token','').strip()
+        target = settings.get('line_group_id','').strip() or settings.get('line_user_id','').strip()
+        if not token or not target: return
+        url = "https://api.line.me/v2/bot/message/push"
+        data = json.dumps({"to": target, "messages": [{"type": "text", "text": message}]}).encode()
+        req = urllib.request.Request(url, data=data, headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}"
+        })
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"[WARN] LINE cancel notify: {e}")
+
+def send_line_cancel_flex(cancel_type, table_name, detail, cashier, time_str):
+    icon = "🚫" if cancel_type == "ยกเลิกโต๊ะ" else "🗑️"
+    flex = {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#c0392b",
+            "contents": [
+                {"type": "text", "text": f"{icon} {cancel_type}", "weight": "bold", "size": "lg", "color": "#ffffff"},
+                {"type": "text", "text": time_str, "size": "sm", "color": "#ffcccc"}
+            ]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "sm", "backgroundColor": "#1a0000",
+            "contents": [
+                {"type": "box", "layout": "horizontal", "contents": [
+                    {"type": "text", "text": "โต๊ะ", "size": "sm", "color": "#ff6b6b", "flex": 2},
+                    {"type": "text", "text": table_name, "size": "sm", "color": "#ffffff", "flex": 4, "weight": "bold"}
+                ]},
+                {"type": "box", "layout": "horizontal", "contents": [
+                    {"type": "text", "text": "รายการ", "size": "sm", "color": "#ff6b6b", "flex": 2},
+                    {"type": "text", "text": detail, "size": "sm", "color": "#ffffff", "flex": 4, "wrap": True}
+                ]},
+                {"type": "separator", "margin": "sm", "color": "#5a0000"},
+                {"type": "box", "layout": "horizontal", "contents": [
+                    {"type": "text", "text": "พนักงาน", "size": "sm", "color": "#ff6b6b", "flex": 2},
+                    {"type": "text", "text": cashier, "size": "sm", "color": "#ffcccc", "flex": 4}
+                ]}
+            ]
+        }
+    }
+    try:
+        _send_line_raw([{"type":"flex","altText":f"{icon} {cancel_type} — {table_name}","contents":flex}])
+    except Exception as e:
+        print(f"[WARN] LINE cancel flex: {e}")
+
+def send_line_bill(bill_data):
+    d = bill_data
+    pay_icon = "📱" if d.get("payment_method")=="โอน" else "💵"
+    order_contents = []
+    for o in (d.get("orders") or []):
+        order_contents.append({
+            "type":"box","layout":"horizontal","contents":[
+                {"type":"text","text":o.get("name",""),"size":"sm","color":"#555555","flex":3},
+                {"type":"text","text":f"x{o.get('qty',1)}","size":"sm","color":"#aaaaaa","flex":1,"align":"center"},
+                {"type":"text","text":f"{o.get('total_price',0):,.0f}฿","size":"sm","color":"#111111","flex":2,"align":"end"}
+            ]
+        })
+    tb_contents = []
+    for b in (d.get("time_breakdown") or []):
+        tb_contents.append({
+            "type":"box","layout":"horizontal","contents":[
+                {"type":"text","text":b.get("label","ค่าโต๊ะ"),"size":"sm","color":"#555555","flex":3},
+                {"type":"text","text":b.get("hours_str",""),"size":"sm","color":"#aaaaaa","flex":2,"align":"center"},
+                {"type":"text","text":f"{b.get('fee',0):,.2f}฿","size":"sm","color":"#111111","flex":2,"align":"end"}
+            ]
+        })
+        if b.get("is_promo") and b.get("disc",0)>0:
+            tb_contents.append({
+                "type":"box","layout":"horizontal","contents":[
+                    {"type":"text","text":b.get("promo_name","โปรโมชั่น"),"size":"xs","color":"#06c755","flex":5},
+                    {"type":"text","text":f"-{b.get('disc',0):,.0f}฿","size":"xs","color":"#06c755","flex":2,"align":"end"}
+                ]
+            })
+    all_items = tb_contents + ([{"type":"separator","margin":"sm"}] if (tb_contents and order_contents) else []) + order_contents
+    if not all_items:
+        all_items = [{"type":"text","text":"ไม่มีรายการ","size":"sm","color":"#aaaaaa"}]
+    disc_row = []
+    if d.get("discount",0)>0:
+        disc_row = [{"type":"box","layout":"horizontal","margin":"sm","contents":[
+            {"type":"text","text":"ส่วนลด","size":"sm","color":"#e53e3e","flex":3},
+            {"type":"text","text":f"-{d['discount']:,.0f}฿","size":"sm","color":"#e53e3e","flex":2,"align":"end"}
+        ]}]
+    flex = {
+        "type":"bubble",
+        "header":{
+            "type":"box","layout":"vertical","backgroundColor":"#1a1a2e","contents":[
+                {"type":"text","text":"🎱 G2 SNOOKER","weight":"bold","size":"lg","color":"#f6c90e"},
+                {"type":"text","text":"ใบเสร็จรับเงิน","size":"sm","color":"#aaaaaa"}
+            ]
+        },
+        "body":{
+            "type":"box","layout":"vertical","spacing":"sm","contents":[
+                {"type":"box","layout":"horizontal","contents":[
+                    {"type":"text","text":"เลขบิล","size":"sm","color":"#aaaaaa","flex":2},
+                    {"type":"text","text":d.get("bill_no",""),"size":"sm","color":"#111111","flex":3,"align":"end","weight":"bold"}
+                ]},
+                {"type":"box","layout":"horizontal","contents":[
+                    {"type":"text","text":"โต๊ะ","size":"sm","color":"#aaaaaa","flex":2},
+                    {"type":"text","text":d.get("table_name",""),"size":"sm","color":"#111111","flex":3,"align":"end"}
+                ]},
+                {"type":"box","layout":"horizontal","contents":[
+                    {"type":"text","text":"เวลา","size":"sm","color":"#aaaaaa","flex":2},
+                    {"type":"text","text":d.get("time_range",""),"size":"sm","color":"#111111","flex":3,"align":"end"}
+                ]},
+                {"type":"box","layout":"horizontal","contents":[
+                    {"type":"text","text":"พนักงาน","size":"sm","color":"#aaaaaa","flex":2},
+                    {"type":"text","text":d.get("cashier",""),"size":"sm","color":"#111111","flex":3,"align":"end"}
+                ]},
+                {"type":"separator","margin":"md"},
+                {"type":"box","layout":"vertical","margin":"md","spacing":"xs","contents": all_items},
+                {"type":"separator","margin":"md"},
+            ]+disc_row+[
+                {"type":"box","layout":"horizontal","margin":"md","contents":[
+                    {"type":"text","text":"รวมสุทธิ","weight":"bold","size":"lg","flex":3},
+                    {"type":"text","text":f"{d.get('total',0):,} ฿","weight":"bold","size":"xl","color":"#f6c90e","flex":3,"align":"end"}
+                ]},
+                {"type":"box","layout":"horizontal","margin":"sm","contents":[
+                    {"type":"text","text":f"{pay_icon} {d.get('payment_method','เงินสด')}","size":"sm","color":"#06c755","flex":5}
+                ]}
+            ]
+        }
+    }
+    _send_line_raw([{"type":"flex","altText":f"เช็คบิล {d.get('table_name','')} รวม {d.get('total',0):,} ฿","contents":flex}])
+
+def _send_line_raw(messages):
+    try:
+        conn = get_db_connection()
+        s = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='line_token'").fetchone()
+        uid = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='line_user_id'").fetchone()
+        conn.close()
+        token = s['setting_value'].strip() if s and s['setting_value'] else ''
+        user_id = uid['setting_value'].strip() if uid and uid['setting_value'] else ''
+        if not token or not user_id: return
+        url = "https://api.line.me/v2/bot/message/push"
+        data = json.dumps({"to": user_id, "messages": messages}).encode()
+        req = urllib.request.Request(url, data=data, headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}"
+        })
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"[LINE ERROR] {e}")
+
+def send_telegram_rooms(message, notify_type='checkout'):
+    try:
+        conn = get_db_connection()
+        tok = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='telegram_token'").fetchone()
+        rooms_raw = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='telegram_rooms'").fetchone()
+        conn.close()
+        if not tok or not tok['setting_value']: return
+        token = tok['setting_value'].strip()
+        rooms = json.loads(rooms_raw['setting_value']) if rooms_raw and rooms_raw['setting_value'] else []
+        if not rooms:
+            conn2 = get_db_connection()
+            cid = conn2.execute("SELECT setting_value FROM system_settings WHERE setting_key='telegram_chat_id'").fetchone()
+            conn2.close()
+            if cid and cid['setting_value']:
+                rooms = [{'chat_id': cid['setting_value'], 'notify_checkout': True, 'notify_cancel': True, 'notify_stock': True}]
+        for room in rooms:
+            chat_id = room.get('chat_id','').strip()
+            if not chat_id: continue
+            key_map = {'checkout':'notify_checkout','cancel':'notify_cancel','stock':'notify_stock'}
+            if not room.get(key_map.get(notify_type,'notify_checkout'), False): continue
+            try:
+                url = f"https://api.telegram.org/bot{token}/sendMessage"
+                data = json.dumps({"chat_id": chat_id, "text": message, "parse_mode": "HTML"}).encode()
+                req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+                urllib.request.urlopen(req, timeout=5)
+            except Exception as re:
+                print(f"[WARN] TG room {chat_id}: {re}")
+    except Exception as e:
+        print(f"[WARN] send_telegram_rooms: {e}")
+
+app.secret_key = 'g2snooker_v5_enterprise'
+
+# ── SESSION PERSISTENCE ───────────────────────────────────────
+def load_sessions():
+    sessions = {}
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM active_sessions_db").fetchall()
+    conn.close()
+    for r in rows:
+        try:
+            sessions[r['table_id']] = {
+                "active":     True,
+                "start":      datetime.fromisoformat(r['start_time']) if r['start_time'] else None,
+                "orders":     json.loads(r['orders'] or '[]'),
+                "total_food": r['total_food'] or 0,
+                "limit_mins": r['limit_mins'] or 0,
+                "note":       r['note'] or '',
+            }
+        except Exception as e:
+            print(f"[WARN] load session table {r['table_id']}: {e}")
+    print(f"✅ Loaded {len(sessions)} active table sessions from DB")
+    return sessions
+
+def save_session(table_id, sess):
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT INTO active_sessions_db (table_id,start_time,orders,total_food,limit_mins,note) VALUES (?,?,?,?,?,?) ON CONFLICT(table_id) DO UPDATE SET start_time=EXCLUDED.start_time,orders=EXCLUDED.orders,total_food=EXCLUDED.total_food,limit_mins=EXCLUDED.limit_mins,note=EXCLUDED.note",
+        (table_id,
+         sess['start'].isoformat() if sess.get('start') else None,
+         json.dumps(sess.get('orders', []), ensure_ascii=False),
+         sess.get('total_food', 0),
+         sess.get('limit_mins', 0),
+         sess.get('note', ''))
+    )
+    conn.commit(); conn.close()
+
+def delete_session(table_id):
+    conn = get_db_connection()
+    conn.execute("DELETE FROM active_sessions_db WHERE table_id=?", (table_id,))
+    conn.commit(); conn.close()
+
+active_sessions = {}
+_initialized = False
+
+@app.before_request
+def startup():
+    global active_sessions, _initialized
+    if not _initialized:
+        try:
+            init_db()
+            try:
+                conn_m = get_db_connection()
+                if IS_PG:
+                    conn_m.execute("CREATE TABLE IF NOT EXISTS cancel_logs (id SERIAL PRIMARY KEY, log_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
+                else:
+                    conn_m.execute("CREATE TABLE IF NOT EXISTS cancel_logs (id INTEGER PRIMARY KEY, log_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
+                conn_m.commit(); conn_m.close()
+            except Exception as me:
+                print(f"[WARN] cancel_logs migration: {me}")
+            try:
+                conn_n = get_db_connection()
+                if IS_PG:
+                    conn_n.execute("ALTER TABLE active_sessions_db ADD COLUMN IF NOT EXISTS note TEXT DEFAULT ''")
+                else:
+                    existing_cols = [r[1] for r in conn_n._raw.cursor().execute("PRAGMA table_info(active_sessions_db)").fetchall()]
+                    if 'note' not in existing_cols:
+                        conn_n.execute("ALTER TABLE active_sessions_db ADD COLUMN note TEXT DEFAULT ''")
+                conn_n.commit(); conn_n.close()
+            except Exception as ne:
+                print(f"[WARN] note column migration: {ne}")
+            try:
+                conn_p = get_db_connection()
+                if IS_PG:
+                    conn_p.execute("ALTER TABLE bills ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'เงินสด'")
+                else:
+                    existing = [r[1] for r in conn_p._raw.cursor().execute("PRAGMA table_info(bills)").fetchall()]
+                    if 'payment_method' not in existing:
+                        conn_p.execute("ALTER TABLE bills ADD COLUMN payment_method TEXT DEFAULT 'เงินสด'")
+                conn_p.commit(); conn_p.close()
+            except Exception as pe:
+                print(f"[WARN] payment_method migration: {pe}")
+            active_sessions = load_sessions()
+        except Exception as e:
+            print(f"[WARN] DB init failed: {e}")
+        _initialized = True
+
+@app.route("/")
+def index():
+    try: return render_template("index.html")
+    except Exception as e: return f"Error: {e}", 500
+
+# ── AUTH ──────────────────────────────────────────────────────
+@app.route("/api/login", methods=["POST"])
+def login():
+    conn = get_db_connection()
+    user = conn.execute("SELECT * FROM employees WHERE pin = ?", (request.json.get('pin'),)).fetchone()
+    if not user: conn.close(); return jsonify({"status":"error"}), 401
+    perms = {}
+    if user['role'] not in SUPER_ROLES:
+        rows  = conn.execute("SELECT permission_key,allowed FROM employee_permissions WHERE emp_id=?", (user['id'],)).fetchall()
+        perms = {r['permission_key']: bool(r['allowed']) for r in rows}
+    conn.close()
+    return jsonify({"status":"success","name":user['name'],"role":user['role'],"emp_id":user['id'],"permissions":perms})
+
+# ── PERMISSIONS ───────────────────────────────────────────────
+@app.route("/api/permissions/list")
+def list_permissions():
+    return jsonify([{"key":k,"label":l,"group":g} for k,l,g in ALL_PERMISSIONS])
+
+@app.route("/api/permissions", methods=["GET","POST"])
+def manage_permissions():
+    conn = get_db_connection()
+    if request.method == "GET":
+        eid  = request.args.get('emp_id')
+        rows = conn.execute("SELECT permission_key,allowed FROM employee_permissions WHERE emp_id=?", (eid,)).fetchall()
+        conn.close(); return jsonify({r['permission_key']:bool(r['allowed']) for r in rows})
+    d = request.json; eid = int(d['emp_id'])
+    for k,v in d['permissions'].items():
+        conn.execute("INSERT INTO employee_permissions (emp_id,permission_key,allowed) VALUES (?,?,?) ON CONFLICT(emp_id,permission_key) DO UPDATE SET allowed=EXCLUDED.allowed", (eid,k,1 if v else 0))
+    conn.commit(); conn.close(); return jsonify({"status":"success"})
+
+# ── TABLES ────────────────────────────────────────────────────
+@app.route("/api/tables")
+def get_tables():
+    try:
+        conn  = get_db_connection()
+        tabs  = conn.execute("SELECT * FROM tables_config").fetchall()
+        rates = conn.execute("SELECT * FROM rate_settings").fetchall()
+        try:
+            discounts = conn.execute("SELECT * FROM discount_periods ORDER BY id").fetchall()
+        except:
+            discounts = []
+        conn.close()
+    except Exception as e:
+        print(f"[ERROR] get_tables DB: {e}")
+        return jsonify({})
+    res = {}
+    for t in tabs:
+        tid = t['id']
+        s   = active_sessions.get(tid, {"active":False,"orders":[],"total_food":0,"start":None,"limit_mins":0,"note":""})
+        fee = 0
+        if t['type']=='snooker' and s['active'] and s['start']:
+            now=datetime.now()
+            if s['limit_mins']>0:
+                cap=s['start']+timedelta(minutes=s['limit_mins'])
+                if now>cap: now=cap
+            fee = calc_fee(s['start'], now, rates, discounts)
+        res[tid]={"id":tid,"name":t['name'],"type":t['type'],"active":s['active'],"orders":s['orders'],
+                  "total_food":s.get('total_food',0),
+                  "start":s['start'].isoformat() if s['start'] else None,
+                  "start_ts":s['start'].timestamp() if s['start'] else None,
+                  "limit_mins":s.get('limit_mins',0),"current_time_fee":round(fee,2),"note":s.get('note','')}
+    return jsonify(res)
+
+@app.route("/api/start/<int:tid>", methods=["POST"])
+def start_table(tid):
+    sess = {"active":True,"start":datetime.now(),"orders":[],"total_food":0,"limit_mins":0,"note":""}
+    active_sessions[tid] = sess
+    save_session(tid, sess)
+    send_relay(tid, "on")
+    return jsonify({"status":"success"})
+
+@app.route("/api/table/set_time", methods=["POST"])
+def set_time():
+    d=request.json; tid=int(d['table_id'])
+    if tid in active_sessions:
+        active_sessions[tid]['limit_mins']=int(d['minutes'])
+        save_session(tid, active_sessions[tid])
+        return jsonify({"status":"success"})
+    return jsonify({"status":"error"}),400
+
+@app.route("/api/table/action", methods=["POST"])
+def table_action():
+    d=request.json; action=d.get('action'); src=int(d.get('source')); dst=int(d.get('target',0))
+    if action=='cancel' and src in active_sessions:
+        conn=get_db_connection()
+        tab=conn.execute("SELECT name FROM tables_config WHERE id=?",(src,)).fetchone()
+        tab_name=tab['name'] if tab else f"โต๊ะ {src}"
+        orders_snap=list(active_sessions[src]['orders'])
+        for o in orders_snap:
+            conn.execute("UPDATE inventory SET stock_qty=stock_qty+? WHERE id=?",(o['qty'],int(o['id'])))
+        detail=", ".join([f"{o['name']} x{o['qty']}" for o in orders_snap]) if orders_snap else "ไม่มีออเดอร์"
+        cashier=d.get('cashier','ไม่ระบุ')
+        try:
+            if IS_PG:
+                conn.execute("CREATE TABLE IF NOT EXISTS cancel_logs (id SERIAL PRIMARY KEY, log_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
+            else:
+                conn.execute("CREATE TABLE IF NOT EXISTS cancel_logs (id INTEGER PRIMARY KEY, log_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
+            conn.execute("INSERT INTO cancel_logs (log_type,table_name,detail,cashier,created_at) VALUES (?,?,?,?,?)",
+                ('ยกเลิกโต๊ะ', tab_name, detail, cashier, datetime.now().isoformat()))
+        except Exception as le:
+            print(f"[WARN] cancel_log insert: {le}")
+        conn.commit(); conn.close()
+        active_sessions.pop(src); delete_session(src)
+        send_relay(src, 'off')
+        now_th = (datetime.now() + TZ_OFFSET).strftime('%H:%M')
+        send_telegram_cancel(f"🚫 <b>ยกเลิกโต๊ะ</b>\nโต๊ะ: {tab_name}\nรายการ: {detail}\nพนักงาน: {cashier}\nเวลา: {now_th}")
+        send_line_cancel_flex("ยกเลิกโต๊ะ", tab_name, detail, cashier, now_th)
+        return jsonify({"status":"success"})
+    elif action=='move' and src in active_sessions and dst not in active_sessions:
+        active_sessions[dst]=active_sessions.pop(src)
+        delete_session(src); save_session(dst, active_sessions[dst])
+        send_relay(src, 'off')
+        send_relay(dst, 'on')
+        return jsonify({"status":"success"})
+    elif action=='merge' and src in active_sessions and dst in active_sessions:
+        if active_sessions[src]['start'] and active_sessions[dst]['start']:
+            active_sessions[dst]['start']-=(datetime.now()-active_sessions[src]['start'])
+        for so in active_sessions[src]['orders']:
+            fd=next((d for d in active_sessions[dst]['orders'] if int(d['id'])==int(so['id'])),None)
+            if fd: fd['qty']+=so['qty']; fd['total_price']+=so['total_price']
+            else: active_sessions[dst]['orders'].append(so)
+        active_sessions[dst]['total_food']+=active_sessions[src].get('total_food',0)
+        active_sessions.pop(src); delete_session(src); save_session(dst, active_sessions[dst])
+        send_relay(src, 'off')
+        return jsonify({"status":"success"})
+    return jsonify({"status":"error"}),400
+
+# ── CHECKOUT ─────────────────────────────────────────────────
+@app.route("/api/table/checkout", methods=["POST"])
+def checkout():
+    try:
+        d=request.json; tid=int(d['table_id']); cashier=d['cashier']
+        bill_discount=float(d.get('discount',0)); payment_method=d.get('payment_method','เงินสด')
+    except Exception as e:
+        return jsonify({"status":"error","msg":str(e)}),400
+    if tid not in active_sessions: return jsonify({"status":"error","msg":"ไม่พบ session โต๊ะนี้"}),400
+    conn=get_db_connection()
+    ti=conn.execute("SELECT * FROM tables_config WHERE id=?",(tid,)).fetchone()
+    rates=conn.execute("SELECT * FROM rate_settings").fetchall()
+    try: discounts=conn.execute("SELECT * FROM discount_periods ORDER BY id").fetchall()
+    except Exception: discounts=[]
+    sess=active_sessions[tid]; fee=0; end=datetime.now()
+    if sess['limit_mins']>0:
+        el=math.ceil((end-sess['start']).total_seconds()/60)
+        if el>sess['limit_mins']: end=sess['start']+timedelta(minutes=sess['limit_mins'])
+    time_breakdown = []; promo_disc = 0
+    if ti['type']=='snooker' and sess['start']:
+        time_breakdown, fee, promo_disc = calc_fee_breakdown(sess['start'], end, rates, discounts)
+    fee=round(fee,2); subtotal=fee+sess['total_food']; total=round_thb(max(0,subtotal-bill_discount))
+    bno=f"B{datetime.now().strftime('%y%m%d%H%M%S')}"
+    from database import IS_PG
+    if IS_PG:
+        import psycopg2.extras
+        raw=conn._raw.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'ชำระแล้ว',%s) RETURNING id",
+                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method))
+        bid=raw.fetchone()['id']
+        for o in sess['orders']:
+            raw.execute("INSERT INTO bill_items (bill_id,name,qty,price,total) VALUES (%s,%s,%s,%s,%s)",(bid,o['name'],o['qty'],o['price'],o['total_price']))
+    else:
+        raw=conn._raw.cursor()
+        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method) VALUES (?,?,?,?,?,?,?,?,?,'ชำระแล้ว',?)",
+                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method))
+        bid=raw.lastrowid
+        for o in sess['orders']:
+            raw.execute("INSERT INTO bill_items (bill_id,name,qty,price,total) VALUES (?,?,?,?,?)",(bid,o['name'],o['qty'],o['price'],o['total_price']))
+    conn.commit(); conn.close()
+    snap=list(sess['orders']); tsnap=sess['start'].isoformat() if sess['start'] else None
+    active_sessions.pop(tid); delete_session(tid)
+    send_relay(tid, 'off')
+    try:
+        th_start = (datetime.fromisoformat(tsnap) + TZ_OFFSET).strftime('%H:%M') if tsnap else '-'
+        th_end   = (end + TZ_OFFSET).strftime('%H:%M')
+        mins_total = int((end - datetime.fromisoformat(tsnap)).total_seconds()/60) if tsnap else 0
+        hh, mm = divmod(mins_total, 60)
+        pay_icon = '📱' if payment_method == 'โอน' else '💵'
+        msg = (f"🎱 <b>G2 SNOOKER — เช็คบิล</b>\n"
+               f"โต๊ะ: {ti['name']}\n"
+               f"เวลา: {th_start} → {th_end}"
+               + (f" ({hh} ชม. {mm} นาที)" if hh > 0 else f" ({mm} นาที)") + "\n"
+               f"ค่าโต๊ะ: {fee:,.2f} ฿\n"
+               f"ค่าอาหาร: {sess['total_food']:,.2f} ฿\n"
+               + (f"ส่วนลด: -{bill_discount:,.2f} ฿\n" if bill_discount > 0 else "")
+               + f"{pay_icon} <b>รวมสุทธิ: {total:,} ฿</b>\n"
+               f"ช่องทาง: {payment_method}\n"
+               f"พนักงาน: {cashier}")
+        send_telegram(msg, event_type='checkout')
+        send_line_bill({
+            "bill_no": bno, "table_name": ti['name'],
+            "time_range": f"{th_start} → {th_end}" + (f" ({hh} ชม. {mm} นาที)" if hh > 0 else f" ({mm} นาที)"),
+            "cashier": cashier, "payment_method": payment_method,
+            "time_fee": fee, "food_fee": sess['total_food'],
+            "discount": bill_discount, "total": total,
+            "orders": snap, "time_breakdown": time_breakdown
+        })
+    except Exception as te:
+        print(f"[WARN] Telegram notify: {te}")
+    return jsonify({"status":"success","bill_no":bno,"bill_id":bid,"table_name":ti['name'],"total":total,
+                    "time_fee":fee,"food_fee":sess['total_food'],"discount":bill_discount,"promo_disc":promo_disc,
+                    "cashier":cashier,"payment_method":payment_method,
+                    "start_time":tsnap,"end_time":end.isoformat(),"orders":snap,"time_breakdown":time_breakdown})
+
+# ── ORDERS ───────────────────────────────────────────────────
+@app.route("/api/menu")
+def get_menu():
+    return jsonify([dict(i) for i in get_db_connection().execute("SELECT * FROM inventory").fetchall()])
+
+@app.route("/api/order/add", methods=["POST"])
+def add_order():
+    d=request.json; tid=int(d['table_id']); iid=int(d['item_id'])
+    conn=get_db_connection(); item=conn.execute("SELECT * FROM inventory WHERE id=?",(iid,)).fetchone()
+    if item and item['stock_qty']>0:
+        conn.execute("UPDATE inventory SET stock_qty=stock_qty-1 WHERE id=?",(iid,)); conn.commit()
+        if tid not in active_sessions:
+            active_sessions[tid]={"active":True,"start":datetime.now(),"orders":[],"total_food":0,"limit_mins":0}
+        orders=active_sessions[tid]['orders']
+        fd=next((o for o in orders if int(o['id'])==iid),None)
+        if fd: fd['qty']+=1; fd['total_price']=fd['qty']*fd['price']
+        else: orders.append({"id":iid,"name":item['product_name'],"price":float(item['price']),"qty":1,"total_price":float(item['price'])})
+        active_sessions[tid]['total_food']+=item['price']
+        save_session(tid, active_sessions[tid])
+        conn.close(); return jsonify({"status":"success"})
+    conn.close(); return jsonify({"status":"error","msg":"สินค้าหมด"}),400
+
+@app.route("/api/order/remove", methods=["POST"])
+def remove_order():
+    d=request.json; tid=int(d['table_id']); iid=int(d['item_id'])
+    if tid not in active_sessions: return jsonify({"status":"error"}),400
+    orders=active_sessions[tid]['orders']
+    fd=next((o for o in orders if int(o['id'])==iid),None)
+    if not fd: return jsonify({"status":"error"}),400
+    conn=get_db_connection()
+    conn.execute("UPDATE inventory SET stock_qty=stock_qty+1 WHERE id=?",(iid,))
+    tab=conn.execute("SELECT name FROM tables_config WHERE id=?",(tid,)).fetchone()
+    tab_name=tab['name'] if tab else f"โต๊ะ {tid}"
+    cashier=request.json.get('cashier','ไม่ระบุ')
+    try:
+        if IS_PG:
+            conn.execute("CREATE TABLE IF NOT EXISTS cancel_logs (id SERIAL PRIMARY KEY, log_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
+        else:
+            conn.execute("CREATE TABLE IF NOT EXISTS cancel_logs (id INTEGER PRIMARY KEY, log_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
+        conn.execute("INSERT INTO cancel_logs (log_type,table_name,detail,cashier,created_at) VALUES (?,?,?,?,?)",
+            ('ลบออเดอร์', tab_name, f"{fd['name']} x1 ({fd['price']} ฿)", cashier, datetime.now().isoformat()))
+    except Exception as le:
+        print(f"[WARN] cancel_log insert: {le}")
+    conn.commit(); conn.close()
+    active_sessions[tid]['total_food']=max(0,active_sessions[tid]['total_food']-fd['price'])
+    if fd['qty']>1: fd['qty']-=1; fd['total_price']=fd['qty']*fd['price']
+    else: orders.remove(fd)
+    save_session(tid, active_sessions[tid])
+    return jsonify({"status":"success"})
+
+# ── TABLE NOTE ───────────────────────────────────────────────
+@app.route("/api/table/note", methods=["POST"])
+def set_table_note():
+    d = request.json
+    tid = int(d['table_id'])
+    note = d.get('note', '')
+    if tid in active_sessions:
+        active_sessions[tid]['note'] = note
+        save_session(tid, active_sessions[tid])
+        return jsonify({"status":"success"})
+    return jsonify({"status":"error", "msg":"ไม่พบ session"}), 400
+    try:
+        conn = get_db_connection()
+        settings = {r['setting_key']: r['setting_value'] for r in
+                    conn.execute("SELECT setting_key,setting_value FROM system_settings").fetchall()}
+        conn.close()
+        token = settings.get('line_token','').strip()
+        group_id = settings.get('line_group_id','').strip()
+        if not token or not group_id:
+            return jsonify({"error":"token หรือ group_id ว่าง","token":bool(token),"group_id":group_id})
+        import urllib.error
+        url = "https://api.line.me/v2/bot/message/push"
+        data = json.dumps({"to": group_id, "messages": [{"type":"text","text":"ทดสอบจาก G2 POS"}]}).encode()
+        req = urllib.request.Request(url, data=data, headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}"
+        })
+        try:
+            res = urllib.request.urlopen(req, timeout=5)
+            return jsonify({"status":"success","http":res.status})
+        except urllib.error.HTTPError as he:
+            body = he.read().decode()
+            return jsonify({"status":"error","http":he.code,"body":body})
+    except Exception as e:
+        return jsonify({"error":str(e)})
+
+@app.route("/api/line/test", methods=["POST"])
+def line_test():
+    try:
+        send_line_bill({"bill_no":"TEST001","table_name":"โต๊ะ 1","time_range":"08:00 → 09:00 (1 ชม. 0 นาที)",
+                        "cashier":"ทดสอบ","payment_method":"เงินสด","time_fee":120,"food_fee":0,
+                        "discount":0,"total":120,"orders":[],"time_breakdown":[]})
+        return jsonify({"status":"success"})
+    except Exception as e:
+        return jsonify({"status":"error","msg":str(e)}),500
+
+@app.route("/api/telegram/test", methods=["POST"])
+def telegram_test():
+    try:
+        send_telegram("✅ <b>G2 SNOOKER</b> — ทดสอบการแจ้งเตือน Telegram สำเร็จ!")
+        return jsonify({"status":"success"})
+    except Exception as e:
+        return jsonify({"status":"error","msg":str(e)}),500
+
+# ── TABLE MANAGEMENT ──────────────────────────────────────────
+@app.route("/api/tables_config", methods=["GET","POST","DELETE"])
+def manage_tables_config():
+    conn = get_db_connection()
+    if request.method == "GET":
+        rows = conn.execute("SELECT * FROM tables_config ORDER BY id").fetchall()
+        conn.close()
+        return jsonify([dict(r) for r in rows])
+    if request.method == "POST":
+        d = request.json
+        name = d.get("name","").strip()
+        if not name:
+            conn.close(); return jsonify({"status":"error","msg":"กรุณาใส่ชื่อโต๊ะ"}),400
+        conn.execute("INSERT INTO tables_config (name,type,rate_1) VALUES (?,?,?)", (name, "food", 0.0))
+        conn.commit(); conn.close()
+        return jsonify({"status":"success"})
+    if request.method == "DELETE":
+        tid = int(request.json.get("id"))
+        t = conn.execute("SELECT type FROM tables_config WHERE id=?", (tid,)).fetchone()
+        if not t:
+            conn.close(); return jsonify({"status":"error","msg":"ไม่พบโต๊ะ"}),404
+        if t["type"] == "snooker":
+            conn.close(); return jsonify({"status":"error","msg":"ไม่สามารถลบโต๊ะสนุ๊กเกอร์ได้"}),400
+        conn.execute("DELETE FROM tables_config WHERE id=?", (tid,))
+        conn.commit(); conn.close()
+        return jsonify({"status":"success"})
+
+# ── WORK SHIFTS ───────────────────────────────────────────────
+@app.route("/api/shifts", methods=["GET","POST","DELETE"])
+def manage_shifts():
+    conn = get_db_connection()
+    if IS_PG:
+        conn.execute("CREATE TABLE IF NOT EXISTS work_shifts (id SERIAL PRIMARY KEY, shift_name TEXT, start_time TEXT, end_time TEXT, color TEXT DEFAULT '#6366f1')")
+    else:
+        conn.execute("CREATE TABLE IF NOT EXISTS work_shifts (id INTEGER PRIMARY KEY, shift_name TEXT, start_time TEXT, end_time TEXT, color TEXT DEFAULT '#6366f1')")
+    conn.commit()
+    if request.method == "POST":
+        d = request.json
+        if d.get('id'):
+            conn.execute("UPDATE work_shifts SET shift_name=?,start_time=?,end_time=?,color=? WHERE id=?",
+                (d['shift_name'],d['start_time'],d['end_time'],d.get('color','#6366f1'),int(d['id'])))
+        else:
+            conn.execute("INSERT INTO work_shifts (shift_name,start_time,end_time,color) VALUES (?,?,?,?)",
+                (d['shift_name'],d['start_time'],d['end_time'],d.get('color','#6366f1')))
+        conn.commit(); conn.close(); return jsonify({"status":"success"})
+    if request.method == "DELETE":
+        conn.execute("DELETE FROM work_shifts WHERE id=?", (int(request.json['id']),))
+        conn.commit(); conn.close(); return jsonify({"status":"success"})
+    rows = conn.execute("SELECT * FROM work_shifts ORDER BY start_time").fetchall()
+    conn.close(); return jsonify([dict(r) for r in rows])
+
+# ── WORK SCHEDULE ─────────────────────────────────────────────
+@app.route("/api/schedule", methods=["GET","POST","DELETE"])
+def manage_schedule():
+    conn = get_db_connection()
+    if IS_PG:
+        conn.execute("CREATE TABLE IF NOT EXISTS work_schedule (id SERIAL PRIMARY KEY, emp_name TEXT, work_date TEXT, shift_id INTEGER, note TEXT DEFAULT '', UNIQUE(emp_name, work_date, shift_id))")
+    else:
+        conn.execute("CREATE TABLE IF NOT EXISTS work_schedule (id INTEGER PRIMARY KEY, emp_name TEXT, work_date TEXT, shift_id INTEGER, note TEXT DEFAULT '', UNIQUE(emp_name, work_date, shift_id))")
+    conn.commit()
+    if request.method == "POST":
+        d = request.json
+        if IS_PG:
+            conn.execute("INSERT INTO work_schedule (emp_name,work_date,shift_id,note) VALUES (?,?,?,?) ON CONFLICT(emp_name,work_date,shift_id) DO UPDATE SET note=EXCLUDED.note",
+                (d['emp_name'],d['work_date'],int(d['shift_id']),d.get('note','')))
+        else:
+            conn.execute("INSERT OR REPLACE INTO work_schedule (emp_name,work_date,shift_id,note) VALUES (?,?,?,?)",
+                (d['emp_name'],d['work_date'],int(d['shift_id']),d.get('note','')))
+        conn.commit(); conn.close(); return jsonify({"status":"success"})
+    if request.method == "DELETE":
+        d = request.json
+        conn.execute("DELETE FROM work_schedule WHERE emp_name=? AND work_date=? AND shift_id=?",
+            (d['emp_name'],d['work_date'],int(d['shift_id'])))
+        conn.commit(); conn.close(); return jsonify({"status":"success"})
+    week = request.args.get('week','')
+    end  = request.args.get('end','')
+    if week:
+        from datetime import datetime as dt2
+        we = end if end else (dt2.strptime(week,'%Y-%m-%d')+timedelta(days=29)).strftime('%Y-%m-%d')
+        rows = conn.execute("SELECT s.*,sh.shift_name,sh.color,sh.start_time as stime,sh.end_time as etime FROM work_schedule s LEFT JOIN work_shifts sh ON s.shift_id=sh.id WHERE s.work_date>=? AND s.work_date<=? ORDER BY s.work_date,s.emp_name",(week,we)).fetchall()
+    else:
+        rows = conn.execute("SELECT s.*,sh.shift_name,sh.color,sh.start_time as stime,sh.end_time as etime FROM work_schedule s LEFT JOIN work_shifts sh ON s.shift_id=sh.id ORDER BY s.work_date DESC LIMIT 500").fetchall()
+    conn.close(); return jsonify([dict(r) for r in rows])
+
+# ── AUTO SCHEDULE ─────────────────────────────────────────────
+# ── AUTO SCHEDULE (วันจันทร์ 10,16,18,02 / ศุกร์-เสาร์เบิ้ล 18) ────────────────────────
+@app.route("/api/schedule/auto", methods=["POST"])
+def auto_schedule():
+    """จัดตาราง 4 คน: ทำ 6 หยุด 1 วันจันทร์บังคับกะ 10,16,18,02 วันศุกร์-เสาร์เบิ้ลกะค่ำ"""
+    d = request.json
+    week_start = d['week_start']
+    
+    conn = get_db_connection()
+    all_emps = [r['name'] for r in conn.execute("SELECT name FROM employees WHERE role!='owner' ORDER BY id").fetchall()]
+    shifts = conn.execute("SELECT * FROM work_shifts").fetchall()
+    
+    # 1. ค้นหากะจากเวลาเริ่มต้น (10, 16, 18, 02) -> เลิกใช้ 14.00
+    s_10 = next((s['id'] for s in shifts if s['start_time'] == '10:00'), None)
+    s_16 = next((s['id'] for s in shifts if s['start_time'] == '16:00'), None)
+    s_18 = next((s['id'] for s in shifts if s['start_time'] == '18:00'), None)
+    s_02 = next((s['id'] for s in shifts if s['start_time'] == '02:00'), None)
+    
+    if not (s_10 and s_16 and s_18 and s_02):
+        conn.close()
+        return jsonify({"status":"error", "msg":"กรุณาสร้างกะเวลา 10:00, 16:00, 18:00, 02:00 ให้ครบในเมนูจัดการกะงานก่อนครับ (ส่วนกะ 14:00 กดลบทิ้งได้เลย)"}), 400
+        
+    if len(all_emps) != 4:
+        conn.close()
+        return jsonify({"status":"error", "msg":f"ระบบนี้ออกแบบมาสำหรับ 4 คนเป๊ะๆ (ตอนนี้มี {len(all_emps)} คนในระบบ)"}), 400
+        
+    from datetime import datetime, timedelta
+    start_dt = datetime.strptime(week_start, '%Y-%m-%d')
+    week_num = start_dt.isocalendar()[1]
+    
+    # 2. หมุนเวียนบทบาท ทุกคนจะได้สลับกะและสลับวันหยุดในแต่ละสัปดาห์
+    offset = week_num % 4
+    roles = all_emps[offset:] + all_emps[:offset]
+    R1, R2, R3, R4 = roles[0], roles[1], roles[2], roles[3]
+    
+    # 3. โมเดลตารางงาน (รวม 24 กะ/สัปดาห์)
+    # วันหยุด: R1(อังคาร), R2(พุธ), R3(พฤหัส), R4(อาทิตย์)
+    template = {
+        0: [(R1, s_10), (R2, s_16), (R3, s_18), (R4, s_02)], # จันทร์ (10, 16, 18, 02)
+        1: [(R2, s_16), (R3, s_18), (R4, s_02)],             # อังคาร (R1 หยุด)
+        2: [(R3, s_16), (R4, s_18), (R1, s_02)],             # พุธ (R2 หยุด)
+        3: [(R4, s_16), (R1, s_18), (R2, s_02)],             # พฤหัส (R3 หยุด)
+        4: [(R1, s_16), (R2, s_18), (R3, s_18), (R4, s_02)], # ศุกร์ (เสริมคนกะ 18)
+        5: [(R2, s_16), (R3, s_18), (R4, s_18), (R1, s_02)], # เสาร์ (เสริมคนกะ 18)
+        6: [(R1, s_16), (R2, s_18), (R3, s_02)]              # อาทิตย์ (R4 หยุด)
+    }
+    
+    inserted = 0
+    for day_idx in range(7):
+        date_str = (start_dt + timedelta(days=day_idx)).strftime('%Y-%m-%d')
+        day_shifts = template[day_idx]
+        
+        for emp_name, shift_id in day_shifts:
+            try:
+                from database import IS_PG
+                if IS_PG:
+                    conn.execute("INSERT INTO work_schedule (emp_name,work_date,shift_id,note) VALUES (%s,%s,%s,'auto_v5') ON CONFLICT DO NOTHING", (emp_name, date_str, shift_id))
+                else:
+                    conn.execute("INSERT OR IGNORE INTO work_schedule (emp_name,work_date,shift_id,note) VALUES (?,?,?,'auto_v5')", (emp_name, date_str, shift_id))
+                inserted += 1
+            except: pass
+            
+    conn.commit(); conn.close()
+    return jsonify({"status":"success", "inserted":inserted, "summary":f"จัดตารางเรียบร้อย! จันทร์(10,16,18,02) และทุกคนได้หยุด 1 วัน"})
+
+# ── SHOP SCHEDULE (G2snooker rules) ──────────────────────────
+@app.route("/api/schedule/shop", methods=["POST"])
+def shop_schedule():
+    """จัดตารางตามกฎร้าน G2snooker"""
+    d = request.json or {}
+    week_start   = d.get('week_start')
+    days         = int(d.get('days', 30))
+    no_overwrite = d.get('no_overwrite', False)
+
+    if not week_start:
+        return jsonify({"status":"error","errors":["ไม่ได้ระบุ week_start"]}), 400
+
+    conn = get_db_connection()
+    all_shifts = conn.execute("SELECT * FROM work_shifts ORDER BY start_time").fetchall()
+
+    def find_shift(letter):
+        letter = letter.upper()
+        for s in all_shifts:
+            n = s['shift_name'].upper().replace(' ', '')
+            if f'กะ{letter}' in n or n.endswith(letter):
+                return s
+        return None
+
+    sh_a = find_shift('A')
+    sh_b = find_shift('B')
+    sh_c = find_shift('C')
+    sh_d = find_shift('D')
+    sh_e = find_shift('E')
+
+    all_emps = conn.execute("SELECT * FROM employees").fetchall()
+
+    def find_emp(*keywords):
+        for e in all_emps:
+            for kw in keywords:
+                if kw in e['name']:
+                    return e
+        return None
+
+    emp_mgr   = find_emp('โต๋', 'ผจก', 'ผู้จัดการ', 'Manager', 'manager')
+    emp_biw   = find_emp('บิว')
+    emp_fern  = find_emp('เฟริน์', 'ใบเฟริน์')
+    emp_nadia = find_emp('นาเดียร์')
+    emp_noy   = find_emp('เนย')
+
+    errors = []
+    for label, obj in [('กะ A',sh_a),('กะ B',sh_b),('กะ C',sh_c),('กะ D',sh_d),('กะ E',sh_e)]:
+        if not obj: errors.append(f'ไม่พบ {label} ในระบบ — กรุณาสร้างกะก่อน')
+    for label, obj in [('โต๋/ผจก.',emp_mgr),('บิว',emp_biw),('เฟริน์',emp_fern),('นาเดียร์',emp_nadia),('เนย',emp_noy)]:
+        if not obj: errors.append(f'ไม่พบพนักงาน "{label}" — ชื่อต้องตรงกัน')
+    if errors:
+        conn.close()
+        return jsonify({"status":"error","errors":errors}), 400
+
+    from datetime import datetime as dt2
+
+    # รอบ D→C→B (3 วันวนซ้ำ)
+    # อ้างอิง: จันทร์ 20 เม.ย. 2569 = cycle 0
+    REF = dt2(2026, 4, 20)
+    ROTATION = [
+        (sh_d, sh_c, sh_b),  # cycle 0: บิว=D, เฟริน์=C, นาเดียร์=B
+        (sh_c, sh_b, sh_d),  # cycle 1: บิว=C, เฟริน์=B, นาเดียร์=D
+        (sh_b, sh_d, sh_c),  # cycle 2: บิว=B, เฟริน์=D, นาเดียร์=C
+    ]
+    # วันหยุด (weekday 0=จันทร์ ... 6=อาทิตย์)
+    OFF = {
+        emp_mgr['name']:   0,  # จันทร์
+        emp_noy['name']:   3,  # พฤหัส
+        emp_fern['name']:  4,  # ศุกร์
+        emp_nadia['name']: 5,  # เสาร์
+        emp_biw['name']:   6,  # อาทิตย์
+    }
+
+    start_dt = dt2.strptime(week_start, '%Y-%m-%d')
+    existing = set()
+    if no_overwrite:
+        end_str = (start_dt + timedelta(days=days-1)).strftime('%Y-%m-%d')
+        for r in conn.execute(
+            "SELECT emp_name,work_date,shift_id FROM work_schedule WHERE work_date>=? AND work_date<=?",
+            (week_start, end_str)
+        ).fetchall():
+            existing.add((r['emp_name'], r['work_date'], r['shift_id']))
+
+    inserted = 0
+    err_log  = []
+
+    def insert(emp_name, date_str, shift_id):
+        nonlocal inserted
+        if no_overwrite and (emp_name, date_str, shift_id) in existing:
+            return
+        try:
+            if IS_PG:
+                conn.execute(
+                    "INSERT INTO work_schedule (emp_name,work_date,shift_id,note) VALUES (?,?,?,'shop') ON CONFLICT DO NOTHING",
+                    (emp_name, date_str, shift_id))
+            else:
+                conn.execute(
+                    "INSERT OR IGNORE INTO work_schedule (emp_name,work_date,shift_id,note) VALUES (?,?,?,'shop')",
+                    (emp_name, date_str, shift_id))
+            inserted += 1
+        except Exception as e:
+            err_log.append(str(e))
+
+    for i in range(days):
+        dt_obj   = start_dt + timedelta(days=i)
+        date_str = dt_obj.strftime('%Y-%m-%d')
+        dow      = dt_obj.weekday()
+        is_mon   = (dow == 0)
+
+        # คำนวณ cycle วันนี้
+        cycle = ((dt_obj - REF).days) % 3
+        biw_sh, fern_sh, nadia_sh = ROTATION[cycle]
+
+        # หาว่าใครอยู่กะ C วันนี้ → คนนั้นคุมแทนกะ A วันจันทร์
+        if   biw_sh['id']   == sh_c['id']: c_person = emp_biw
+        elif fern_sh['id']  == sh_c['id']: c_person = emp_fern
+        else:                               c_person = emp_nadia
+
+        # ── ผจก. กะ A (หยุดจันทร์) ──────────────────────────
+        if not is_mon:
+            insert(emp_mgr['name'], date_str, sh_a['id'])
+
+        # ── วันจันทร์: c_person คุมแทนกะ A ─────────────────
+        if is_mon:
+            insert(c_person['name'], date_str, sh_a['id'])
+
+        # ── บิว ──────────────────────────────────────────────
+        if OFF[emp_biw['name']] != dow:
+            if not (is_mon and c_person['name'] == emp_biw['name']):
+                insert(emp_biw['name'], date_str, biw_sh['id'])
+
+        # ── เฟริน์ ────────────────────────────────────────────
+        if OFF[emp_fern['name']] != dow:
+            if not (is_mon and c_person['name'] == emp_fern['name']):
+                insert(emp_fern['name'], date_str, fern_sh['id'])
+
+        # ── นาเดียร์ ──────────────────────────────────────────
+        if OFF[emp_nadia['name']] != dow:
+            if not (is_mon and c_person['name'] == emp_nadia['name']):
+                insert(emp_nadia['name'], date_str, nadia_sh['id'])
+
+        # ── เนย กะ E (หยุดพฤหัส) ─────────────────────────────
+        if OFF[emp_noy['name']] != dow:
+            insert(emp_noy['name'], date_str, sh_e['id'])
+
+    conn.commit(); conn.close()
+    return jsonify({
+        "status":   "success",
+        "inserted": inserted,
+        "summary":  f"จัด {inserted} slot ใน {days} วัน",
+        "errors":   err_log
+    })
+
+# ── TABLE NAME EDIT ───────────────────────────────────────────
+@app.route("/api/tables_config/<int:tid>", methods=["PUT"])
+def edit_table_name(tid):
+    d = request.json
+    conn = get_db_connection()
+    conn.execute("UPDATE tables_config SET name=? WHERE id=?", (d['name'], tid))
+    conn.commit(); conn.close()
+    return jsonify({"status":"success"})
+
+# ── RELAY CONTROL (ESP8266) ───────────────────────────────────
+import urllib.request as _ureq
+
+def _get_esp_url():
+    try:
+        conn = get_db_connection()
+        r = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='esp8266_url'").fetchone()
+        conn.close()
+        return r['setting_value'].strip() if r and r['setting_value'] else None
+    except: return None
+
+def send_relay(table_number, state):
+    url = _get_esp_url()
+    if not url: return
+    try:
+        data = json.dumps({"table": table_number, "state": state}).encode()
+        req = _ureq.Request(f"{url}/relay", data=data,
+                            headers={"Content-Type": "application/json"})
+        _ureq.urlopen(req, timeout=2)
+    except Exception as e:
+        print(f"[WARN] Relay table {table_number}: {e}")
+
+@app.route("/api/relay/test", methods=["POST"])
+def relay_test():
+    url = _get_esp_url()
+    if not url:
+        return jsonify({"status":"error","msg":"ยังไม่ได้ตั้งค่า ESP8266 URL"}),400
+    try:
+        req = _ureq.Request(f"{url}/status")
+        res = _ureq.urlopen(req, timeout=3)
+        data = json.loads(res.read())
+        return jsonify({"status":"success","relay_status":data})
+    except Exception as e:
+        return jsonify({"status":"error","msg":str(e)}),500
+
+@app.route("/api/relay/control", methods=["POST"])
+def relay_control():
+    d = request.json
+    table = int(d.get("table", 1))
+    state = d.get("state", "off")
+    send_relay(table, state)
+    return jsonify({"status":"success","table":table,"state":state})
+
+# ── SPECIAL HOLIDAYS ─────────────────────────────────────────
+@app.route("/api/holidays", methods=["GET","POST","DELETE"])
+def manage_holidays():
+    conn = get_db_connection()
+    if IS_PG:
+        conn.execute("CREATE TABLE IF NOT EXISTS special_holidays (id SERIAL PRIMARY KEY, holiday_date TEXT UNIQUE, description TEXT DEFAULT '')")
+    else:
+        conn.execute("CREATE TABLE IF NOT EXISTS special_holidays (id INTEGER PRIMARY KEY, holiday_date TEXT UNIQUE, description TEXT DEFAULT '')")
+    conn.commit()
+    if request.method == "POST":
+        d = request.json
+        if IS_PG:
+            conn.execute("INSERT INTO special_holidays (holiday_date,description) VALUES (?,?) ON CONFLICT(holiday_date) DO UPDATE SET description=EXCLUDED.description",
+                (d['date'], d.get('description','')))
+        else:
+            conn.execute("INSERT OR REPLACE INTO special_holidays (holiday_date,description) VALUES (?,?)",
+                (d['date'], d.get('description','')))
+        conn.commit(); conn.close(); return jsonify({"status":"success"})
+    if request.method == "DELETE":
+        conn.execute("DELETE FROM special_holidays WHERE holiday_date=?", (request.json['date'],))
+        conn.commit(); conn.close(); return jsonify({"status":"success"})
+    rows = conn.execute("SELECT * FROM special_holidays ORDER BY holiday_date").fetchall()
+    conn.close(); return jsonify([dict(r) for r in rows])
+
+# ── EMP SHIFT RESTRICTIONS ────────────────────────────────────
+@app.route("/api/restrictions", methods=["GET","POST","DELETE"])
+def manage_restrictions():
+    conn = get_db_connection()
+    if IS_PG:
+        conn.execute("CREATE TABLE IF NOT EXISTS emp_shift_restrictions (id SERIAL PRIMARY KEY, emp_name TEXT, shift_id INTEGER, UNIQUE(emp_name, shift_id))")
+    else:
+        conn.execute("CREATE TABLE IF NOT EXISTS emp_shift_restrictions (id INTEGER PRIMARY KEY, emp_name TEXT, shift_id INTEGER, UNIQUE(emp_name, shift_id))")
+    conn.commit()
+    if request.method == "POST":
+        d = request.json
+        if IS_PG:
+            conn.execute("INSERT INTO emp_shift_restrictions (emp_name,shift_id) VALUES (?,?) ON CONFLICT DO NOTHING", (d['emp_name'],int(d['shift_id'])))
+        else:
+            conn.execute("INSERT OR IGNORE INTO emp_shift_restrictions (emp_name,shift_id) VALUES (?,?)", (d['emp_name'],int(d['shift_id'])))
+        conn.commit(); conn.close(); return jsonify({"status":"success"})
+    if request.method == "DELETE":
+        d = request.json
+        conn.execute("DELETE FROM emp_shift_restrictions WHERE emp_name=? AND shift_id=?", (d['emp_name'],int(d['shift_id'])))
+        conn.commit(); conn.close(); return jsonify({"status":"success"})
+    rows = conn.execute("SELECT * FROM emp_shift_restrictions").fetchall()
+    conn.close(); return jsonify([dict(r) for r in rows])
+
+# ── CANCEL LOGS ──────────────────────────────────────────────
+@app.route("/api/cancel_logs")
+def get_cancel_logs():
+    try:
+        conn = get_db_connection()
+        if IS_PG:
+            conn.execute("CREATE TABLE IF NOT EXISTS cancel_logs (id SERIAL PRIMARY KEY, log_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
+        else:
+            conn.execute("CREATE TABLE IF NOT EXISTS cancel_logs (id INTEGER PRIMARY KEY, log_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
+        conn.commit()
+        df=request.args.get('date','')
+        q="SELECT * FROM cancel_logs WHERE 1=1"; p=[]
+        if df: q+=" AND created_at LIKE ?"; p.append(f"{df}%")
+        q+=" ORDER BY id DESC LIMIT 300"
+        rows=[dict(r) for r in conn.execute(q,p).fetchall()]
+        conn.close()
+        return jsonify(rows)
+    except Exception as e:
+        print(f"[ERROR] cancel_logs: {e}")
+        return jsonify([])
+
+# ── INVENTORY ────────────────────────────────────────────────
+@app.route("/api/inventory/update", methods=["POST"])
+def update_stock():
+    d=request.json; conn=get_db_connection()
+    conn.execute("UPDATE inventory SET stock_qty=stock_qty+? WHERE id=?",(int(d['qty']),int(d['id']))); conn.commit(); conn.close()
+    return jsonify({"status":"success"})
+
+@app.route("/api/inventory/new", methods=["POST"])
+def new_product():
+    d=request.json; conn=get_db_connection()
+    conn.execute("INSERT INTO inventory (product_name,price,cost,stock_qty,category) VALUES (?,?,?,?,?)",
+                 (d['name'],float(d['price']),float(d['cost']),int(d['qty']),d['category'])); conn.commit(); conn.close()
+    return jsonify({"status":"success"})
+
+@app.route("/api/inventory/<int:item_id>", methods=["DELETE"])
+def delete_product(item_id):
+    conn=get_db_connection(); conn.execute("DELETE FROM inventory WHERE id=?",(item_id,)); conn.commit(); conn.close()
+    return jsonify({"status":"success"})
+
+@app.route("/api/inventory/categories", methods=["GET","DELETE"])
+def manage_categories():
+    conn=get_db_connection()
+    if request.method=="GET":
+        rows=conn.execute("SELECT DISTINCT category FROM inventory WHERE category IS NOT NULL AND category!='' ORDER BY category").fetchall()
+        conn.close(); return jsonify([r['category'] for r in rows])
+    cat=request.json.get('category')
+    conn.execute("UPDATE inventory SET category='ทั่วไป' WHERE category=?",(cat,)); conn.commit(); conn.close()
+    return jsonify({"status":"success"})
+
+# ── BILLS ────────────────────────────────────────────────────
+@app.route("/api/bills")
+def get_bills():
+    df=request.args.get('date',''); tf=request.args.get('table','')
+    q="SELECT * FROM bills WHERE 1=1"; p=[]
+    if df: q+=" AND created_at LIKE ?"; p.append(f"{df}%")
+    if tf: q+=" AND table_name LIKE ?"; p.append(f"%{tf}%")
+    q+=" ORDER BY id DESC LIMIT 200"
+    return jsonify([dict(b) for b in get_db_connection().execute(q,p).fetchall()])
+
+@app.route("/api/bills/<int:bid>")
+def get_bill_items(bid):
+    conn=get_db_connection()
+    bill=conn.execute("SELECT * FROM bills WHERE id=?",(bid,)).fetchone()
+    items=conn.execute("SELECT * FROM bill_items WHERE bill_id=?",(bid,)).fetchall()
+    conn.close(); return jsonify({"bill":dict(bill) if bill else {},"items":[dict(i) for i in items]})
+
+# ── EXPENSES ─────────────────────────────────────────────────
+@app.route("/api/expenses", methods=["GET","POST"])
+def manage_expenses():
+    conn=get_db_connection()
+    if request.method=="POST":
+        d=request.json
+        exp_date=d.get('expense_date','') or datetime.now().strftime('%Y-%m-%d')
+        exp_dt=datetime.fromisoformat(exp_date+'T00:00:00') if 'T' not in exp_date else datetime.fromisoformat(exp_date)
+        conn.execute("INSERT INTO expenses (category,amount,note,created_by,created_at) VALUES (?,?,?,?,?)",
+                     (d['category'],float(d['amount']),d['note'],d['cashier'],exp_dt.isoformat()))
+        conn.commit(); conn.close(); return jsonify({"status":"success"})
+    e=conn.execute("SELECT * FROM expenses ORDER BY id DESC LIMIT 30").fetchall(); conn.close()
+    return jsonify([dict(i) for i in e])
+
+# ── EXCHANGE ─────────────────────────────────────────────────
+@app.route("/api/exchange", methods=["GET","POST"])
+def handle_exchange():
+    conn=get_db_connection()
+    if request.method=="POST":
+        d=request.json
+        conn.execute("INSERT INTO exchange_history (total_amount,bill_100_qty,bill_20_qty,cashier,created_at) VALUES (?,?,?,?,?)",
+                     (d['amount'],d['qty_100'],d['qty_20'],d['cashier'],datetime.now().isoformat()))
+        conn.commit(); conn.close(); return jsonify({"status":"success"})
+    h=conn.execute("SELECT * FROM exchange_history ORDER BY id DESC LIMIT 15").fetchall(); conn.close()
+    return jsonify([dict(i) for i in h])
+
+# ── DISCOUNT PERIODS ──────────────────────────────────────────
+@app.route("/api/discount_periods", methods=["GET","POST"])
+def discount_periods():
+    conn = get_db_connection()
+    if IS_PG:
+        conn.execute("CREATE TABLE IF NOT EXISTS discount_periods (id SERIAL PRIMARY KEY, period_name TEXT, start_hour INTEGER, end_hour INTEGER, discount_amount REAL DEFAULT 0, is_active INTEGER DEFAULT 1)")
+    else:
+        conn.execute("CREATE TABLE IF NOT EXISTS discount_periods (id INTEGER PRIMARY KEY, period_name TEXT, start_hour INTEGER, end_hour INTEGER, discount_amount REAL DEFAULT 0, is_active INTEGER DEFAULT 1)")
+    if request.method == "POST":
+        rows = request.json
+        for r in rows:
+            if r.get('id'):
+                conn.execute("UPDATE discount_periods SET period_name=?,start_hour=?,end_hour=?,discount_amount=?,is_active=? WHERE id=?",
+                    (r['period_name'],int(r['start_hour']),int(r['end_hour']),float(r['discount_amount']),1 if r.get('is_active') else 0,int(r['id'])))
+            else:
+                conn.execute("INSERT INTO discount_periods (period_name,start_hour,end_hour,discount_amount,is_active) VALUES (?,?,?,?,1)",
+                    (r['period_name'],int(r['start_hour']),int(r['end_hour']),float(r['discount_amount'])))
+        conn.commit(); conn.close()
+        return jsonify({"status":"success"})
+    cnt = conn.execute("SELECT COUNT(*) as n FROM discount_periods").fetchone()
+    if not cnt or cnt['n']==0:
+        conn.execute("INSERT INTO discount_periods (period_name,start_hour,end_hour,discount_amount,is_active) VALUES (?,?,?,?,?)",
+            ('ส่วนลดช่วงเช้า (08:00-16:00)',8,16,40.0,1))
+        conn.commit()
+    rows = conn.execute("SELECT * FROM discount_periods ORDER BY id").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+# ── RATES ────────────────────────────────────────────────────
+@app.route("/api/rates/reset", methods=["POST"])
+def reset_rates():
+    conn=get_db_connection()
+    defaults=[('ช่วงเช้า (08:00-16:00)',8,16,120.0),
+              ('ช่วงค่ำ (16:00-02:00)',16,2,120.0),
+              ('รอบดึก (02:00-08:00)',2,8,150.0)]
+    rows=conn.execute("SELECT id FROM rate_settings ORDER BY id").fetchall()
+    for i,row in enumerate(rows):
+        if i<len(defaults):
+            pname,sh,eh,rate=defaults[i]
+            conn.execute("UPDATE rate_settings SET period_name=?,start_hour=?,end_hour=?,hourly_rate=? WHERE id=?",
+                         (pname,sh,eh,rate,row['id']))
+    conn.commit(); conn.close()
+    return jsonify({"status":"success"})
+
+@app.route("/api/rates", methods=["GET","POST"])
+def manage_rates():
+    conn=get_db_connection()
+    if request.method=="POST":
+        for r in request.json:
+            conn.execute("UPDATE rate_settings SET hourly_rate=?,start_hour=?,end_hour=? WHERE id=?",
+                         (float(r['rate']),int(r['start_hour']),int(r['end_hour']),int(r['id'])))
+        conn.commit(); conn.close(); return jsonify({"status":"success"})
+    r=conn.execute("SELECT * FROM rate_settings").fetchall(); conn.close()
+    return jsonify([dict(i) for i in r])
+
+# ── SETTINGS ─────────────────────────────────────────────────
+@app.route("/api/settings", methods=["GET","POST"])
+def manage_settings():
+    conn=get_db_connection()
+    if request.method=="POST":
+        for k,v in request.json.items():
+            conn.execute("INSERT INTO system_settings (setting_key,setting_value) VALUES (?,?) ON CONFLICT(setting_key) DO UPDATE SET setting_value=EXCLUDED.setting_value",(k,str(v)))
+        conn.commit(); conn.close(); return jsonify({"status":"success"})
+    r=conn.execute("SELECT * FROM system_settings").fetchall(); conn.close()
+    return jsonify({i['setting_key']:i['setting_value'] for i in r})
+
+# ── EMPLOYEES ────────────────────────────────────────────────
+@app.route("/api/employees", methods=["GET","POST","DELETE"])
+def manage_employees():
+    conn=get_db_connection()
+    if request.method=="GET":
+        e=conn.execute("SELECT id,name,pin,role FROM employees ORDER BY id").fetchall(); conn.close()
+        return jsonify([dict(i) for i in e])
+    if request.method=="POST":
+        d=request.json
+        try:
+            if d.get('id'):
+                conn.execute("UPDATE employees SET name=?,pin=?,role=? WHERE id=?",(d['name'],d['pin'],d['role'],int(d['id'])))
+            else:
+                conn.execute("INSERT INTO employees (name,pin,role) VALUES (?,?,?)",(d['name'],d['pin'],d['role']))
+                if d['role']=='staff':
+                    from database import DEFAULT_STAFF_PERMISSIONS
+                    nid=conn.execute("SELECT id FROM employees WHERE pin=?",(d['pin'],)).fetchone()['id']
+                    for pk in DEFAULT_STAFF_PERMISSIONS:
+                        conn.execute("INSERT INTO employee_permissions (emp_id,permission_key,allowed) VALUES (?,?,1) ON CONFLICT DO NOTHING",(nid,pk))
+            conn.commit(); conn.close()
+            return jsonify({"status":"success"})
+        except Exception as ex:
+            conn.close()
+            msg="PIN นี้มีคนใช้แล้ว" if "UNIQUE" in str(ex) else str(ex)
+            return jsonify({"status":"error","msg":msg}),400
+    if request.method=="DELETE":
+        eid=int(request.json['id'])
+        conn.execute("DELETE FROM employees WHERE id=?",(eid,))
+        conn.execute("DELETE FROM employee_permissions WHERE emp_id=?",(eid,))
+        conn.commit(); conn.close(); return jsonify({"status":"success"})
+
+# ── PAYROLL ──────────────────────────────────────────────────
+@app.route("/api/payroll/<int:payroll_id>", methods=["PUT","DELETE"])
+def edit_delete_payroll(payroll_id):
+    conn = get_db_connection()
+    if request.method == "DELETE":
+        conn.execute("DELETE FROM payroll WHERE id=?", (payroll_id,))
+        conn.commit(); conn.close()
+        return jsonify({"status":"success"})
+    d = request.json
+    conn.execute("""UPDATE payroll SET emp_name=?,month_year=?,base_salary=?,working_days=?,actual_days=?,
+        daily_rate=?,ot_hours=?,ot_rate=?,ot_amount=?,bonus_amount=?,late_count=?,late_penalty=?,
+        deduct_late=?,deduct_absent=?,deduct_other=?,net_salary=? WHERE id=?""",
+        (d['emp_name'],d['month_year'],d['base_salary'],d['working_days'],d['actual_days'],
+         d['daily_rate'],d['ot_hours'],d['ot_rate'],d['ot_amount'],d['bonus_amount'],
+         d['late_count'],d['late_penalty'],d['deduct_late'],d['deduct_absent'],
+         d['deduct_other'],d['net_salary'],payroll_id))
+    conn.commit(); conn.close()
+    return jsonify({"status":"success"})
+
+@app.route("/api/payroll/settings", methods=["GET","POST"])
+def payroll_settings():
+    conn = get_db_connection()
+    if request.method == "POST":
+        d = request.json
+        conn.execute(
+            "INSERT INTO payroll_emp_settings (emp_name,monthly_base,working_days,ot_rate,late_penalty) VALUES (?,?,?,?,?) ON CONFLICT(emp_name) DO UPDATE SET monthly_base=EXCLUDED.monthly_base,working_days=EXCLUDED.working_days,ot_rate=EXCLUDED.ot_rate,late_penalty=EXCLUDED.late_penalty",
+            (d["emp_name"], float(d.get("monthly_base",0)), int(d.get("working_days",26)),
+             float(d.get("ot_rate",0)), float(d.get("late_penalty",50)))
+        )
+        conn.commit(); conn.close()
+        return jsonify({"status":"success"})
+    rows = conn.execute("SELECT * FROM payroll_emp_settings").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/payroll/daily", methods=["GET","POST"])
+def payroll_daily():
+    conn = get_db_connection()
+    if request.method == "POST":
+        d = request.json
+        conn.execute(
+            "INSERT INTO payroll_daily (emp_name,work_date,status,is_late,ot_hours,note,created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(emp_name,work_date) DO UPDATE SET status=EXCLUDED.status,is_late=EXCLUDED.is_late,ot_hours=EXCLUDED.ot_hours,note=EXCLUDED.note,created_at=EXCLUDED.created_at",
+            (d["emp_name"], d["work_date"], d.get("status","present"),
+             1 if d.get("is_late") else 0, float(d.get("ot_hours",0)),
+             d.get("note",""), datetime.now().isoformat())
+        )
+        conn.commit(); conn.close()
+        return jsonify({"status":"success"})
+    week_start = request.args.get("week_start", "")
+    if week_start:
+        week_end = (datetime.strptime(week_start,"%Y-%m-%d") + timedelta(days=6)).strftime("%Y-%m-%d")
+        rows = conn.execute(
+            "SELECT * FROM payroll_daily WHERE work_date >= ? AND work_date <= ? ORDER BY work_date,emp_name",
+            (week_start, week_end)
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM payroll_daily ORDER BY work_date DESC LIMIT 200").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/payroll/weekly_summary", methods=["GET"])
+def payroll_weekly_summary():
+    week_start = request.args.get("week_start","")
+    if not week_start:
+        today = datetime.now()
+        days_since_mon = today.weekday()
+        week_start = (today - timedelta(days=days_since_mon)).strftime("%Y-%m-%d")
+    week_end = (datetime.strptime(week_start,"%Y-%m-%d") + timedelta(days=6)).strftime("%Y-%m-%d")
+    conn = get_db_connection()
+    rows  = conn.execute(
+        "SELECT * FROM payroll_daily WHERE work_date >= ? AND work_date <= ?",
+        (week_start, week_end)
+    ).fetchall()
+    settings = {r["emp_name"]: dict(r) for r in conn.execute("SELECT * FROM payroll_emp_settings").fetchall()}
+    conn.close()
+    emp_data = {}
+    for r in rows:
+        n = r["emp_name"]
+        if n not in emp_data:
+            emp_data[n] = {"emp_name":n,"actual_days":0,"absent_days":0,"late_count":0,"ot_hours":0.0,"records":[]}
+        if r["status"] == "present":
+            emp_data[n]["actual_days"] += 1
+        else:
+            emp_data[n]["absent_days"] += 1
+        if r["is_late"]: emp_data[n]["late_count"] += 1
+        emp_data[n]["ot_hours"] += r["ot_hours"] or 0
+        emp_data[n]["records"].append(dict(r))
+    result = []
+    for name, data in emp_data.items():
+        s = settings.get(name, {"monthly_base":0,"working_days":26,"ot_rate":0,"late_penalty":50})
+        monthly = float(s.get("monthly_base",0) or 0)
+        wd      = int(s.get("working_days",26) or 26)
+        daily_r = round(monthly / wd, 2) if wd > 0 else 0
+        ot_rate = float(s.get("ot_rate",0) or 0)
+        late_p  = float(s.get("late_penalty",50) or 50)
+        base_pay    = round(data["actual_days"] * daily_r, 2)
+        ot_pay      = round(data["ot_hours"] * ot_rate, 2)
+        late_deduct = round(data["late_count"] * late_p, 2)
+        net = round(base_pay + ot_pay - late_deduct, 2)
+        result.append({**data, "daily_rate":daily_r, "base_pay":base_pay,
+                       "ot_pay":ot_pay, "late_deduct":late_deduct, "net":net,
+                       "monthly_base":monthly, "settings": s})
+    return jsonify({"week_start":week_start,"week_end":week_end,"employees":result})
+
+@app.route("/api/payroll/weekly_close", methods=["POST"])
+def payroll_weekly_close():
+    d = request.json
+    conn = get_db_connection()
+    week_label = f"สัปดาห์ {d['week_start']} ถึง {d['week_end']}"
+    for emp in d.get("employees",[]):
+        conn.execute(
+            "INSERT INTO payroll (emp_name,month_year,base_salary,working_days,actual_days,daily_rate,"
+            "ot_hours,ot_rate,ot_amount,bonus_amount,late_count,late_penalty,"
+            "deduct_late,deduct_absent,deduct_other,net_salary,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (emp["emp_name"], week_label,
+             emp.get("monthly_base",0), emp.get("working_days",26),
+             emp.get("actual_days",0), emp.get("daily_rate",0),
+             emp.get("ot_hours",0), emp.get("settings",{}).get("ot_rate",0), emp.get("ot_pay",0),
+             0, emp.get("late_count",0), emp.get("settings",{}).get("late_penalty",50),
+             emp.get("late_deduct",0), 0, 0, emp.get("net",0),
+             datetime.now().isoformat())
+        )
+    conn.commit(); conn.close()
+    return jsonify({"status":"success"})
+
+@app.route("/api/payroll", methods=["GET","POST"])
+def manage_payroll():
+    conn=get_db_connection()
+    if request.method=="POST":
+        d=request.json
+        base=float(d.get('base_salary',0)); wd=int(d.get('working_days',26)); ad=int(d.get('actual_days',wd))
+        dr=round(base/wd,2) if wd>0 else 0
+        oth=float(d.get('ot_hours',0)); otr=float(d.get('ot_rate',0)); ota=round(oth*otr,2)
+        bon=float(d.get('bonus_amount',0))
+        lc=int(d.get('late_count',0)); lp=float(d.get('late_penalty',0)); dl=round(lc*lp,2)
+        da=round((wd-ad)*dr,2); doth=float(d.get('deduct_other',0))
+        bp=round(ad*dr,2); net=round((bp+ota+bon)-(dl+da+doth),2)
+        conn.execute("INSERT INTO payroll (emp_name,month_year,base_salary,working_days,actual_days,daily_rate,"
+                     "ot_hours,ot_rate,ot_amount,bonus_amount,late_count,late_penalty,"
+                     "deduct_late,deduct_absent,deduct_other,net_salary,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (d['emp_name'],d.get('month_year',''),base,wd,ad,dr,oth,otr,ota,bon,lc,lp,dl,da,doth,net,datetime.now().isoformat()))
+        conn.commit(); conn.close()
+        return jsonify({"status":"success","net":net,"daily_rate":dr,"deduct_absent":da,"ot_amount":ota,"base_pay":bp})
+    rows=conn.execute("SELECT * FROM payroll ORDER BY id DESC LIMIT 100").fetchall(); conn.close()
+    return jsonify([dict(r) for r in rows])
+
+# ── REPORT / DASHBOARD ───────────────────────────────────────
+@app.route("/api/report/dashboard")
+def get_dashboard():
+    conn=get_db_connection()
+    r1=conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='day_cutoff_time'").fetchone()
+    r2=conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='starting_cash'").fetchone()
+    ct=r1['setting_value'] if r1 else "06:00"; sc=float(r2['setting_value']) if r2 else 2000.0
+    ch,cm=map(int,ct.split(':'))
+    now=datetime.now(); ctt=now.replace(hour=ch,minute=cm,second=0,microsecond=0)
+    if now<ctt:
+        ss=(now-timedelta(days=1)).replace(hour=ch,minute=cm,second=0,microsecond=0); sd=(now-timedelta(days=1)).strftime('%d/%m/%Y')
+    else:
+        ss=ctt; sd=now.strftime('%d/%m/%Y')
+    sstr=ss.strftime('%Y-%m-%d %H:%M:%S')
+    bills=conn.execute("SELECT * FROM bills WHERE created_at>=? ORDER BY id DESC",(sstr,)).fetchall()
+    sales=sum(b['total'] for b in bills)
+    exp=conn.execute("SELECT SUM(amount) FROM expenses WHERE created_at>=?",(sstr,)).fetchone()[0] or 0
+    conn.close()
+    cash_sales = sum(b['total'] for b in bills if (b.get('payment_method') or 'เงินสด')=='เงินสด')
+    transfer_sales = sum(b['total'] for b in bills if (b.get('payment_method') or 'เงินสด')!='เงินสด')
+    return jsonify({"sales":round(sales,2),"expenses":round(float(exp),2),"net":round(sales-float(exp),2),
+                    "cash_sales":round(cash_sales,2),"transfer_sales":round(transfer_sales,2),
+                    "shift_date":sd,"starting_cash":sc,"daily_bills":[dict(b) for b in bills]})
+    # ── LINE WEBHOOK (ระบบเช็คอินด้วยรูปภาพ) ──────────────────────────────────
+@app.route("/api/line/webhook", methods=["POST"])
+def line_webhook():
+    import json
+    import urllib.request
+    from datetime import datetime, timedelta
+    
+    # 1. อัปเดตฐานข้อมูลให้พนักงานมีช่องเก็บ LINE ID (ทำแค่ครั้งเดียว)
+    conn = get_db_connection()
+    try:
+        conn.execute("ALTER TABLE employees ADD COLUMN line_user_id TEXT")
+        conn.commit()
+    except: pass
+    
+    body = request.get_data(as_text=True)
+    try:
+        events = json.loads(body).get("events", [])
+    except:
+        return "OK", 200
+
+    # ดึง Token จากตั้งค่า
+    settings = {r["setting_key"]: r["setting_value"] for r in conn.execute("SELECT setting_key,setting_value FROM system_settings").fetchall()}
+    line_token = settings.get("line_token", "").strip()
+    
+    for event in events:
+        if event.get("type") == "message":
+            reply_token = event.get("replyToken")
+            user_id = event.get("source", {}).get("userId")
+            msg_type = event.get("message", {}).get("type")
+            
+            # 📌 กรณีที่ 1: พนักงานพิมพ์ลงทะเบียน (เช่น "ลงทะเบียน บิว")
+            if msg_type == "text":
+                text = event["message"].get("text", "").strip()
+                if text.startswith("ลงทะเบียน "):
+                    emp_name = text.replace("ลงทะเบียน ", "").strip()
+                    # อัปเดต LINE ID ให้พนักงานคนนี้
+                    conn.execute("UPDATE employees SET line_user_id=? WHERE name=?", (user_id, emp_name))
+                    conn.commit()
+                    
+                    check_emp = conn.execute("SELECT name FROM employees WHERE line_user_id=?", (user_id,)).fetchone()
+                    if check_emp:
+                        reply_msg(reply_token, line_token, f"✅ ลงทะเบียนสำเร็จ!\nระบบจำได้แล้วว่าคุณคือ '{check_emp['name']}'\n\n📸 ครั้งต่อไปสามารถส่ง 'รูปถ่าย' เพื่อเช็คอินเข้างานได้เลยครับ")
+                    else:
+                        reply_msg(reply_token, line_token, f"❌ ไม่พบชื่อ '{emp_name}' ในระบบ\nกรุณาตรวจสอบชื่อให้ตรงกับในตารางงานครับ")
+
+            # 📌 กรณีที่ 2: พนักงานส่ง "รูปภาพ" เพื่อเช็คอิน
+            elif msg_type == "image":
+                emp = conn.execute("SELECT name FROM employees WHERE line_user_id=?", (user_id,)).fetchone()
+                if not emp:
+                    reply_msg(reply_token, line_token, "❌ คุณยังไม่ได้ลงทะเบียน\nกรุณาพิมพ์: ลงทะเบียน [ชื่อของคุณ]")
+                    continue
+                
+                emp_name = emp['name']
+                now = datetime.now() + timedelta(hours=7) # เวลาไทย (เผื่อ Render รันเวลา UTC)
+                today_str = now.strftime('%Y-%m-%d')
+                time_str = now.strftime('%H:%M')
+                
+                # เช็คว่าวันนี้มีกะไหม?
+                sc = conn.execute("""
+                    SELECT s.start_time 
+                    FROM work_schedule w 
+                    JOIN work_shifts s ON w.shift_id = s.id 
+                    WHERE w.emp_name=? AND w.work_date=?
+                """, (emp_name, today_str)).fetchone()
+                
+                if not sc:
+                    reply_msg(reply_token, line_token, f"❌ {emp_name} วันนี้คุณไม่มีตารางงานนะครับ หรือเป็นวันหยุดครับ")
+                    continue
+                
+                # เช็คว่าเคยเช็คอินไปแล้วหรือยังในวันนี้
+                has_checked = conn.execute("SELECT id FROM payroll_daily WHERE emp_name=? AND work_date=?", (emp_name, today_str)).fetchone()
+                if has_checked:
+                    reply_msg(reply_token, line_token, f"⚠️ {emp_name} คุณได้เช็คอินของวันนี้ไปแล้วครับ")
+                    continue
+
+                # คำนวณสาย / ตรงเวลา
+                # อนุโลมให้เข้าก่อนเวลาได้ (เช่น 09:53 ตีเป็นตรงเวลา)
+                # และถ้ามาไม่เกิน 15 นาทีของกะ (เช่น กะ 10.00 มา 10.15) ถือว่าตรงเวลา (แก้ตัวเลขได้)
+                shift_time_str = sc['start_time'] # เช่น "10:00"
+                shift_dt = datetime.strptime(f"{today_str} {shift_time_str}", "%Y-%m-%d %H:%M")
+                
+                is_late = False
+                status_msg = "✅ ตรงเวลา"
+                
+                if now > shift_dt + timedelta(minutes=15): 
+                    is_late = True
+                    status_msg = "⏰ มาสาย"
+
+                # บันทึกลงตารางเงินเดือนรายวันอัตโนมัติ!
+                try:
+                    from database import IS_PG
+                    if IS_PG:
+                        conn.execute("INSERT INTO payroll_daily (emp_name, work_date, status, is_late, ot_hours, note) VALUES (%s,%s,'present',%s,0,%s)", 
+                                     (emp_name, today_str, is_late, f"เช็คอิน {time_str} น."))
+                    else:
+                        conn.execute("INSERT INTO payroll_daily (emp_name, work_date, status, is_late, ot_hours, note) VALUES (?,?,'present',?,0,?)", 
+                                     (emp_name, today_str, is_late, f"เช็คอิน {time_str} น."))
+                    conn.commit()
+                    
+                    # ตอบกลับในกลุ่ม
+                    reply_msg(reply_token, line_token, f"📸 เช็คอินสำเร็จ!\n👤 พนักงาน: {emp_name}\n🕒 เวลาเข้า: {time_str} น.\n📌 สถานะ: {status_msg}")
+                except Exception as e:
+                    reply_msg(reply_token, line_token, f"❌ ระบบบันทึกข้อมูลมีปัญหา: {e}")
+
+    conn.close()
+    return "OK", 200
+
+def reply_msg(reply_token, token, text):
+    """ฟังก์ชันผู้ช่วยสำหรับให้บอทตอบกลับใน LINE"""
+    import json
+    import urllib.request
+    url = "https://api.line.me/v2/bot/message/reply"
+    data = json.dumps({
+        "replyToken": reply_token,
+        "messages": [{"type": "text", "text": text}]
+    }).encode('utf-8')
+    req = urllib.request.Request(url, data=data, headers={
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}"
+    })
+    try:
+        urllib.request.urlopen(req, timeout=5)
+    except: pass
+
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
