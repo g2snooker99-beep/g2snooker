@@ -211,7 +211,18 @@ def send_line_cancel_flex(cancel_type, table_name, detail, cashier, time_str):
         }
     }
     try:
-        _send_line_raw([{"type":"flex","altText":f"{icon} {cancel_type} — {table_name}","contents":flex}])
+        conn = get_db_connection()
+        settings = {r['setting_key']: r['setting_value'] for r in
+                    conn.execute("SELECT setting_key,setting_value FROM system_settings").fetchall()}
+        conn.close()
+        token = settings.get('line_cancel_token','').strip() or settings.get('line_token','').strip()
+        target = settings.get('line_group_id','').strip()
+        if not token or not target: return
+        import urllib.request, json
+        url = "https://api.line.me/v2/bot/message/push"
+        data = json.dumps({"to": target, "messages": [{"type":"flex","altText":f"{icon} {cancel_type} — {table_name}","contents":flex}]}).encode()
+        req = urllib.request.Request(url, data=data, headers={"Content-Type":"application/json","Authorization":f"Bearer {token}"})
+        urllib.request.urlopen(req, timeout=5)
     except Exception as e:
         print(f"[WARN] LINE cancel flex: {e}")
 
