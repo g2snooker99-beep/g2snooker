@@ -1509,21 +1509,12 @@ def line_webhook():
     # 1. อัปเดตฐานข้อมูลให้พนักงานมีช่องเก็บ LINE ID (ทำแค่ครั้งเดียว)
     conn = get_db_connection()
     try:
-        conn.execute("ALTER TABLE employees ADD COLUMN line_user_id TEXT") if False else None
-        try:
-            conn.execute("ALTER TABLE employees ADD COLUMN line_user_id TEXT")
-        except:
-            conn.rollback() if False else None
-        try:
-            conn.execute("ALTER TABLE employees ADD COLUMN line_user_id TEXT") if False else None
-        try:
-            conn.execute("ALTER TABLE employees ADD COLUMN line_user_id TEXT")
-        except:
-            conn.rollback()
-        except:
-            conn.rollback()
+        conn.execute("ALTER TABLE employees ADD COLUMN line_user_id TEXT")
         conn.commit()
-    except: pass
+    except Exception:
+        conn.rollback()
+    conn.close()
+    conn = get_db_connection()
     
     body = request.get_data(as_text=True)
     try:
