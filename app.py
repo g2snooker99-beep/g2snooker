@@ -1540,6 +1540,7 @@ def line_webhook():
     line_token = settings.get("line_token", "").strip()
     
     for event in events:
+        print(f"[LINE EVENT] source={event.get('source',{})}")
         if event.get("type") == "message":
             reply_token = event.get("replyToken")
             user_id = event.get("source", {}).get("userId")
