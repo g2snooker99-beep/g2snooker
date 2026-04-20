@@ -878,6 +878,24 @@ h6.text-muted{color:#94a3b8 !important}
         <button class="btn btn-sm btn-outline-info" onclick="loadExchangeHistory()">ประวัติ</button>
       </div>
       <div id="exc-main-view">
+        <div class="p-2 rounded mb-3" style="background:rgba(16,185,129,0.1);border:1px solid #10b981">
+          <h6 class="text-success mb-2 text-center" style="font-size:.85rem">💰 เงินตั้งต้นทั้งหมดในลิ้นชัก</h6>
+          <div class="text-center">
+            <input type="number" id="exc-total-cash" class="form-control custom-input text-success fw-bold text-center fs-5 mb-2" placeholder="ยอดเงินตั้งต้น (บาท)" style="max-width:200px;margin:0 auto">
+            <small class="text-muted d-block mb-2">กรอกยอดเงินที่มีอยู่ในลิ้นชักตอนนี้</small>
+            <button class="btn btn-success btn-sm fw-bold px-4" onclick="saveTotalCash()"><i class="fa-solid fa-floppy-disk me-1"></i>บันทึกเงินตั้งต้น</button>
+          </div>
+          <div class="mt-2">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <small class="text-muted">ประวัติการแก้ไข</small>
+              <button class="btn btn-outline-secondary py-0 px-2" style="font-size:0.7rem" onclick="loadStartingCashHistory()">โหลด</button>
+            </div>
+            <table class="table table-premium text-center mb-0" style="font-size:0.75rem">
+              <thead><tr><th>วันที่/เวลา</th><th>ยอด</th><th>ผู้แก้ไข</th></tr></thead>
+              <tbody id="starting-cash-hist-body"><tr><td colspan="3" class="text-muted">กด "โหลด" เพื่อดูประวัติ</td></tr></tbody>
+            </table>
+          </div>
+        </div>
         <div class="p-2 rounded mb-3" style="background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1)">
           <h6 class="text-warning mb-2 text-center" style="font-size:.85rem">สต๊อกเงินทอน</h6>
           <div class="row g-2 text-center mb-2">
@@ -2025,6 +2043,27 @@ async function saveCutoff(){
   alert("บันทึกเวลาตัดยอดสำเร็จ!");
 }
 // ─── EXCHANGE STOCK ──────────────────────────────────────────
+async function saveTotalCash(){
+  const total = document.getElementById('exc-total-cash')?.value||'';
+  if(!total) return alert('กรุณากรอกยอดเงินตั้งต้น');
+  localStorage.setItem('exc_total_cash', total);
+  await fetch('/api/starting_cash_log', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({amount:total, cashier:currentUser})});
+  alert('✅ บันทึกเงินตั้งต้น ' + parseFloat(total).toLocaleString() + ' บาท สำเร็จ');
+}
+
+async function loadStartingCashHistory(){
+  const r = await fetch('/api/starting_cash_log');
+  const d = await r.json();
+  const el = document.getElementById('starting-cash-hist-body');
+  if(el) el.innerHTML = d.map(h=>`<tr>
+    <td class="text-muted small">${(h.created_at||'').replace('T',' ').substr(0,16)}</td>
+    <td class="text-success fw-bold">${parseFloat(h.amount).toLocaleString()} ฿</td>
+    <td class="text-info">${h.cashier||'-'}</td>
+  </tr>`).join('') || '<tr><td colspan="3" class="text-muted text-center">ยังไม่มีประวัติ</td></tr>';
+}
+
 function saveStockValues(){
   const s100=document.getElementById('stock-100')?.value||'5000';
   const s20=document.getElementById('stock-20')?.value||'5000';
