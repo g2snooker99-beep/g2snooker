@@ -3222,6 +3222,77 @@ function applyEmpFilter(){
 }
 
 // ─── SHIFT ───────────────────────────────────────────────────
+function toggleShiftSection(id){
+  const el = document.getElementById(id);
+  if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function exportShiftPDF(){
+  const shopName = localStorage.getItem('shop_name') || 'G2 SNOOKER';
+  const bills = document.getElementById('shift-bills-body')?.innerHTML || '';
+  const exps = document.getElementById('shift-exp-body')?.innerHTML || '';
+  const sales = document.getElementById('shift-sales')?.innerText || '0 ฿';
+  const exp = document.getElementById('shift-exp')?.innerText || '0 ฿';
+  const net = document.getElementById('shift-net')?.innerText || '0 ฿';
+  const cash = document.getElementById('shift-cash')?.innerText || '0 ฿';
+  const transfer = document.getElementById('shift-transfer')?.innerText || '0 ฿';
+  const expected = document.getElementById('shift-expected')?.innerText || '0 ฿';
+  const starting = document.getElementById('shift-starting')?.innerText || '0 ฿';
+  const meta = document.getElementById('shift-meta')?.innerText || '';
+  const w = window.open('','_blank','width=600,height=800');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>ใบส่งกะ</title>
+  <style>
+    body{font-family:'Sarabun',sans-serif;font-size:13px;padding:20px;color:#111}
+    h1{font-size:18px;text-align:center;margin-bottom:4px}
+    .sub{text-align:center;color:#666;font-size:12px;margin-bottom:16px}
+    .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px}
+    .stat{border:1px solid #ddd;border-radius:6px;padding:8px;text-align:center}
+    .stat-label{font-size:11px;color:#666}
+    .stat-val{font-size:16px;font-weight:bold}
+    .green{color:#059669}.red{color:#dc2626}.blue{color:#0284c7}
+    table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px}
+    th{background:#f3f4f6;padding:6px 8px;text-align:left;border-bottom:1px solid #ddd}
+    td{padding:5px 8px;border-bottom:1px solid #eee}
+    .total-box{border:2px solid #059669;border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+    .total-val{font-size:22px;font-weight:bold;color:#059669}
+    hr{border:none;border-top:1px solid #ddd;margin:12px 0}
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
+  </head><body>
+  <h1>${shopName}</h1>
+  <div class="sub">ใบส่งกะ | ${meta}</div>
+  <div class="stat-grid">
+    <div class="stat"><div class="stat-label">รายได้รวม</div><div class="stat-val green">${sales}</div></div>
+    <div class="stat"><div class="stat-label">รายจ่าย</div><div class="stat-val red">${exp}</div></div>
+    <div class="stat"><div class="stat-label">กำไรสุทธิ</div><div class="stat-val blue">${net}</div></div>
+  </div>
+  <div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
+    <div class="stat"><div class="stat-label">เงินสด</div><div class="stat-val">${cash}</div></div>
+    <div class="stat"><div class="stat-label">โอนเงิน</div><div class="stat-val">${transfer}</div></div>
+  </div>
+  <h3 style="font-size:14px;margin-bottom:6px">บิลทั้งหมด</h3>
+  <table><thead><tr><th>เลขที่บิล</th><th>โต๊ะ</th><th>เวลา</th><th>ค่าโต๊ะ</th><th>ค่าอาหาร</th><th>รวม</th><th>ชำระ</th></tr></thead><tbody>${bills}</tbody></table>
+  <h3 style="font-size:14px;margin-bottom:6px">รายจ่าย</h3>
+  <table><thead><tr><th>เวลา</th><th>หมวดหมู่</th><th>รายละเอียด</th><th>จำนวน</th></tr></thead><tbody>${exps}</tbody></table>
+  <hr>
+  <div style="font-size:12px;color:#666">
+    <div style="display:flex;justify-content:space-between"><span>เงินตั้งต้น</span><span>${starting}</span></div>
+    <div style="display:flex;justify-content:space-between"><span>+ รายได้เงินสด</span><span class="green">${cash}</span></div>
+    <div style="display:flex;justify-content:space-between"><span>- รายจ่าย</span><span class="red">${exp}</span></div>
+  </div>
+  <div class="total-box">
+    <span style="font-size:14px;font-weight:bold">เงินสดที่ต้องมีในลิ้นชัก</span>
+    <span class="total-val">${expected}</span>
+  </div>
+  <div style="margin-top:40px;font-size:12px;color:#666;text-align:center">
+    ลายมือชื่อพนักงาน: ___________________________
+  </div>
+  </body></html>`);
+  w.document.close();
+  setTimeout(()=>w.print(), 500);
+}
+
 async function openShiftModal(){
   await loadReport();
   const d = await (await fetch('/api/report/dashboard')).json();
