@@ -777,23 +777,99 @@ h6.text-muted{color:#94a3b8 !important}
 </div>
 
 <div class="modal fade" id="shiftModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content modal-premium border-0 p-4 text-center">
-      <h5 class="text-danger fw-bold mb-3">สรุปยอดส่งกะ</h5>
-      <div class="row text-start mb-2">
-        <div class="col-6 text-muted">เงินตั้งต้น:</div><div class="col-6 text-end text-warning" id="shift-starting">2,000 ฿</div>
-        <div class="col-6 text-muted">ยอดขายรอบนี้:</div><div class="col-6 text-end text-success" id="shift-sales">-</div>
-        <div class="col-6 text-muted">รายจ่ายรอบนี้:</div><div class="col-6 text-end text-danger" id="shift-exp">-</div>
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content modal-premium border-0 p-4">
+      <div class="d-flex justify-content-between align-items-start mb-3 pb-2 border-bottom border-secondary">
+        <div>
+          <h5 class="text-warning fw-bold mb-0">สรุปยอดส่งกะ</h5>
+          <small class="text-muted" id="shift-meta">-</small>
+        </div>
+        <span class="text-muted small" id="shift-shop-name">G2 SNOOKER</span>
       </div>
-      <div class="p-2 rounded mb-3" style="background:rgba(255,255,255,0.05)">
-        <h6 class="text-muted mb-1">เงินสดที่ต้องมีในลิ้นชัก</h6>
-        <h3 class="text-warning fw-bold m-0" id="shift-expected">0 ฿</h3>
+      <div class="row g-2 mb-3">
+        <div class="col-4">
+          <div class="p-2 rounded text-center" style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3)">
+            <div class="text-muted small mb-1">รายได้รวม</div>
+            <div class="text-success fw-bold fs-5" id="shift-sales">0 ฿</div>
+          </div>
+        </div>
+        <div class="col-4">
+          <div class="p-2 rounded text-center" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3)">
+            <div class="text-muted small mb-1">รายจ่าย</div>
+            <div class="text-danger fw-bold fs-5" id="shift-exp">0 ฿</div>
+          </div>
+        </div>
+        <div class="col-4">
+          <div class="p-2 rounded text-center" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3)">
+            <div class="text-muted small mb-1">กำไรสุทธิ</div>
+            <div class="text-info fw-bold fs-5" id="shift-net">0 ฿</div>
+          </div>
+        </div>
       </div>
-      <button class="btn btn-danger w-100 py-2 fw-bold" onclick="printShiftReport()"><i class="fa-solid fa-print me-2"></i>พิมพ์ใบส่งกะ &amp; ออกจากระบบ</button>
+      <div class="row g-2 mb-3">
+        <div class="col-6">
+          <div class="p-2 rounded text-center" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1)">
+            <div class="text-muted small mb-1">เงินสด</div>
+            <div class="text-white fw-bold" id="shift-cash">0 ฿</div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="p-2 rounded text-center" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1)">
+            <div class="text-muted small mb-1">โอนเงิน</div>
+            <div class="text-white fw-bold" id="shift-transfer">0 ฿</div>
+          </div>
+        </div>
+      </div>
+      <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="text-warning small fw-bold">บิลทั้งหมด (<span id="shift-bill-count">0</span> บิล)</span>
+          <button class="btn btn-sm btn-outline-info py-0 px-2" onclick="toggleShiftSection('shift-bills-detail')" style="font-size:0.75rem">ดูรายละเอียด</button>
+        </div>
+        <div id="shift-bills-detail" style="display:none;max-height:200px;overflow-y:auto">
+          <table class="table table-premium text-center" style="font-size:0.8rem">
+            <thead><tr><th>เลขที่บิล</th><th>โต๊ะ</th><th>เวลา</th><th>ค่าโต๊ะ</th><th>ค่าอาหาร</th><th>รวม</th><th>ชำระ</th></tr></thead>
+            <tbody id="shift-bills-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="text-warning small fw-bold">รายจ่ายในกะ (<span id="shift-exp-count">0</span> รายการ)</span>
+          <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="toggleShiftSection('shift-exp-detail')" style="font-size:0.75rem">ดูรายละเอียด</button>
+        </div>
+        <div id="shift-exp-detail" style="display:none;max-height:150px;overflow-y:auto">
+          <table class="table table-premium text-center" style="font-size:0.8rem">
+            <thead><tr><th>เวลา</th><th>หมวดหมู่</th><th>รายละเอียด</th><th>จำนวน</th></tr></thead>
+            <tbody id="shift-exp-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <hr class="border-secondary">
+      <div class="d-flex justify-content-between mb-1">
+        <span class="text-muted small">เงินตั้งต้น</span>
+        <span class="text-warning small" id="shift-starting">0 ฿</span>
+      </div>
+      <div class="d-flex justify-content-between mb-1">
+        <span class="text-muted small">+ รายได้เงินสด</span>
+        <span class="text-success small" id="shift-cash-income">0 ฿</span>
+      </div>
+      <div class="d-flex justify-content-between mb-2">
+        <span class="text-muted small">- รายจ่าย</span>
+        <span class="text-danger small" id="shift-exp-out">0 ฿</span>
+      </div>
+      <div class="p-2 rounded mb-3" style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3)">
+        <div class="d-flex justify-content-between align-items-center">
+          <span class="text-success fw-bold">เงินสดที่ต้องมีในลิ้นชัก</span>
+          <span class="text-success fw-bold fs-4" id="shift-expected">0 ฿</span>
+        </div>
+      </div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-danger flex-fill py-2 fw-bold" onclick="printShiftReport()"><i class="fa-solid fa-print me-2"></i>พิมพ์ใบส่งกะ & ออก</button>
+        <button class="btn btn-success flex-fill py-2 fw-bold" onclick="exportShiftPDF()"><i class="fa-solid fa-file-pdf me-2"></i>Export PDF</button>
+      </div>
     </div>
   </div>
 </div>
-
 <div class="modal fade" id="exchangeModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content modal-premium border-0 p-4">
