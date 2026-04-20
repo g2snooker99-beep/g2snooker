@@ -1552,7 +1552,7 @@ def line_webhook():
                 # ตอบ Group ID กลับมาเสมอ
                 source = event.get("source", {})
                 group_id = source.get("groupId", "")
-                if group_id and reply_token:
+                if group_id and reply_token and text == "ขอไอดีกลุ่ม":
                     reply_url = "https://api.line.me/v2/bot/message/reply"
                     reply_data = json.dumps({"replyToken": reply_token, "messages": [{"type": "text", "text": f"✅ Group ID ของกลุ่มนี้:\n{group_id}\n\nคัดลอกไปใส่ในตั้งค่าระบบได้เลยครับ"}]}).encode()
                     import urllib.request
