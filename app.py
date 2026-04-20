@@ -1515,123 +1515,345 @@ def get_dashboard():
     # ── LINE WEBHOOK (ระบบเช็คอินด้วยรูปภาพ) ──────────────────────────────────
 @app.route("/api/line/webhook", methods=["POST"])
 def line_webhook():
-    import json
-    import urllib.request
+    import json, urllib.request, re as _re
     from datetime import datetime, timedelta
-    
-    # 1. อัปเดตฐานข้อมูลให้พนักงานมีช่องเก็บ LINE ID (ทำแค่ครั้งเดียว)
     conn = get_db_connection()
     try:
         conn.execute("ALTER TABLE employees ADD COLUMN line_user_id TEXT")
         conn.commit()
-    except Exception:
-        conn.rollback()
-    conn.close()
-    conn = get_db_connection()
-    
+    except: conn.rollback()
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS line_conv_state (
+            user_id TEXT PRIMARY KEY, state TEXT, data TEXT,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS leave_requests (
+            id INTEGER PRIMARY KEY, emp_name TEXT, leave_date TEXT,
+            shift_name TEXT, reason TEXT, status TEXT DEFAULT 'pending',
+            approved_by TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        conn.commit()
+    except: conn.rollback()
     body = request.get_data(as_text=True)
     try:
         events = json.loads(body).get("events", [])
     except:
+        conn.close()
         return "OK", 200
-
-    # ดึง Token จากตั้งค่า
-    settings = {r["setting_key"]: r["setting_value"] for r in conn.execute("SELECT setting_key,setting_value FROM system_settings").fetchall()}
-    line_token = settings.get("line_token", "").strip()
-    
+    settings = {r["setting_key"]: r["setting_value"] for r in
+                conn.execute("SELECT setting_key,setting_value FROM system_settings").fetchall()}
+    line_token = settings.get("line_checkin_token","").strip() or settings.get("line_token","").strip()
     for event in events:
-        print(f"[LINE EVENT] source={event.get('source',{})}")
-        if event.get("type") == "message":
-            reply_token = event.get("replyToken")
-            user_id = event.get("source", {}).get("userId")
-            msg_type = event.get("message", {}).get("type")
-            
-            # 📌 กรณีที่ 1: พนักงานพิมพ์ลงทะเบียน (เช่น "ลงทะเบียน บิว")
-            if msg_type == "text":
-                text = event["message"].get("text", "").strip()
-                # ตอบ Group ID กลับมาเสมอ
-                source = event.get("source", {})
-                group_id = source.get("groupId", "")
-                if group_id and reply_token and text == "ขอไอดีกลุ่ม":
-                    reply_url = "https://api.line.me/v2/bot/message/reply"
-                    reply_data = json.dumps({"replyToken": reply_token, "messages": [{"type": "text", "text": f"✅ Group ID ของกลุ่มนี้:\n{group_id}\n\nคัดลอกไปใส่ในตั้งค่าระบบได้เลยครับ"}]}).encode()
-                    import urllib.request
-                    req2 = urllib.request.Request(reply_url, data=reply_data, headers={"Content-Type": "application/json", "Authorization": f"Bearer {settings.get('line_cancel_token','').strip() or line_token}"})
-                    try: urllib.request.urlopen(req2, timeout=5)
-                    except Exception as re: print(f"[REPLY ERR] {re}")
-                if text.startswith("ลงทะเบียน "):
-                    emp_name = text.replace("ลงทะเบียน ", "").strip()
-                    # อัปเดต LINE ID ให้พนักงานคนนี้
-                    conn.execute("UPDATE employees SET line_user_id=? WHERE name=?", (user_id, emp_name))
-                    conn.commit()
-                    
-                    check_emp = conn.execute("SELECT name FROM employees WHERE line_user_id=?", (user_id,)).fetchone()
-                    if check_emp:
-                        reply_msg(reply_token, line_token, f"✅ ลงทะเบียนสำเร็จ!\nระบบจำได้แล้วว่าคุณคือ '{check_emp['name']}'\n\n📸 ครั้งต่อไปสามารถส่ง 'รูปถ่าย' เพื่อเช็คอินเข้างานได้เลยครับ")
+        if event.get("type") != "message":
+            continue
+        reply_token = event.get("replyToken","")
+        user_id = event.get("source",{}).get("userId","")
+        group_id = event.get("source",{}).get("groupId","")
+        msg_type = event.get("message",{}).get("type","")
+        if reply_token in ["00000000000000000000000000000000","ffffffffffffffffffffffffffffffff"]:
+            continue
+        now = datetime.utcnow() + timedelta(hours=7)
+        today_str = now.strftime("%Y-%m-%d")
+        time_str = now.strftime("%H:%M")
+        if msg_type == "text":
+            text = event["message"].get("text","").strip()
+            try:
+                conv = conn.execute("SELECT state,data FROM line_conv_state WHERE user_id=?", (user_id,)).fetchone()
+            except: conv = None
+            skip_kw = ["ลางาน","ลงทะเบียน","เลิกงาน","ตารางงาน","คำสั่ง","ขอไอดีกลุ่ม","เช็คอิน","อนุมัติ","ยกเลิก"]
+            if conv and conv["state"] and not any(text==k or text.startswith(k+" ") for k in skip_kw):
+                import json as _js
+                state = conv["state"]
+                data = _js.loads(conv["data"] or "{}")
+                emp = conn.execute("SELECT name FROM employees WHERE line_user_id=?", (user_id,)).fetchone()
+                emp_name = emp["name"] if emp else ""
+                if text == "ยกเลิก":
+                    try: conn.execute("DELETE FROM line_conv_state WHERE user_id=?", (user_id,)); conn.commit()
+                    except: pass
+                    reply_msg(reply_token, line_token, "❌ ยกเลิกแล้วครับ")
+                    continue
+                if state == "leave_step1":
+                    try:
+                        parts = text.strip().split("/")
+                        if len(parts) == 3:
+                            d,m,y = parts
+                            leave_date = f"{y}-{m.zfill(2)}-{d.zfill(2)}"
+                            leave_date_fmt = f"{d.zfill(2)}/{m.zfill(2)}/{y}"
+                            sc = conn.execute("""SELECT s.shift_name,s.start_time,s.end_time
+                                FROM work_schedule w JOIN work_shifts s ON w.shift_id=s.id
+                                WHERE w.emp_name=? AND w.work_date=?""", (emp_name,leave_date)).fetchone()
+                            data = {"leave_date":leave_date,"leave_date_fmt":leave_date_fmt,
+                                    "shift_name":sc["shift_name"] if sc else "ไม่มีกะ",
+                                    "start_time":sc["start_time"] if sc else "-",
+                                    "end_time":sc["end_time"] if sc else "-"}
+                            conn.execute("INSERT INTO line_conv_state (user_id,state,data) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET state=EXCLUDED.state,data=EXCLUDED.data",
+                                (user_id,"leave_step2",_js.dumps(data))); conn.commit()
+                            shift_info = f"⏰ กะ: {data['shift_name']} ({data['start_time']}-{data['end_time']})" if sc else "⚠️ ไม่พบกะงานวันนั้น"
+                            reply_msg(reply_token, line_token,
+                                f"📅 วันที่: {leave_date_fmt}\n{shift_info}\n\n📝 กรุณาระบุเหตุผลการลา\nเช่น: ลาป่วย / ลากิจ / ธุระส่วนตัว", show_menu=False)
+                        else:
+                            reply_msg(reply_token, line_token, "❌ รูปแบบไม่ถูกต้อง\nกรุณาใส่: วว/ดด/ปปปป\nเช่น: 20/04/2026", show_menu=False)
+                    except: reply_msg(reply_token, line_token, "❌ รูปแบบวันที่ผิดครับ\nเช่น: 20/04/2026", show_menu=False)
+                    continue
+                elif state == "leave_step2":
+                    data["reason"] = text
+                    conn.execute("INSERT INTO line_conv_state (user_id,state,data) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET state=EXCLUDED.state,data=EXCLUDED.data",
+                        (user_id,"leave_confirm",_js.dumps(data))); conn.commit()
+                    reply_msg(reply_token, line_token,
+                        f"📋 สรุปคำขอลางาน\n{'─'*20}\n"
+                        f"👤 {emp_name}\n📅 วันที่: {data['leave_date_fmt']}\n"
+                        f"⏰ กะ: {data['shift_name']} ({data['start_time']}-{data['end_time']})\n"
+                        f"📝 เหตุผล: {text}\n{'─'*20}\n"
+                        f"ยืนยันส่งคำขอไหม?\nพิมพ์: ยืนยัน หรือ ยกเลิก", show_menu=False)
+                    continue
+                elif state == "leave_confirm":
+                    if text in ["ยืนยัน","ยืนยันครับ","ยืนยันค่ะ"]:
+                        try:
+                            conn.execute("INSERT INTO leave_requests (emp_name,leave_date,shift_name,reason,status) VALUES (?,?,?,?,'pending')",
+                                (emp_name,data["leave_date"],data["shift_name"],data.get("reason",""))); conn.commit()
+                        except: conn.rollback()
+                        try: conn.execute("DELETE FROM line_conv_state WHERE user_id=?", (user_id,)); conn.commit()
+                        except: pass
+                        reply_msg(reply_token, line_token,
+                            f"✅ ส่งคำขอลางานเรียบร้อย!\n👤 {emp_name}\n📅 {data['leave_date_fmt']}\n📝 {data.get('reason','')}\n\n⏳ กรุณารอการยืนยันจากหัวหน้างานครับ")
+                        try:
+                            mgr_token = settings.get("line_cancel_token","").strip() or line_token
+                            mgr_group = settings.get("line_group_id","").strip()
+                            if mgr_token and mgr_group:
+                                msg = (f"📋 คำขอลางานใหม่\n{'─'*20}\n👤 {emp_name}\n📅 {data['leave_date_fmt']}\n"
+                                       f"⏰ กะ: {data['shift_name']}\n📝 {data.get('reason','')}\n{'─'*20}\n"
+                                       f"พิมพ์: อนุมัติ {emp_name} {data['leave_date_fmt']}")
+                                _d = _js.dumps({"to":mgr_group,"messages":[{"type":"text","text":msg}]},ensure_ascii=False).encode("utf-8")
+                                _r = urllib.request.Request("https://api.line.me/v2/bot/message/push",data=_d,
+                                    headers={"Content-Type":"application/json","Authorization":f"Bearer {mgr_token}"})
+                                urllib.request.urlopen(_r, timeout=5)
+                        except Exception as e: print(f"[WARN] {e}")
                     else:
-                        reply_msg(reply_token, line_token, f"❌ ไม่พบชื่อ '{emp_name}' ในระบบ\nกรุณาตรวจสอบชื่อให้ตรงกับในตารางงานครับ")
-
-            # 📌 กรณีที่ 2: พนักงานส่ง "รูปภาพ" เพื่อเช็คอิน
-            elif msg_type == "image":
+                        reply_msg(reply_token, line_token, "กรุณาพิมพ์: ยืนยัน หรือ ยกเลิก ครับ", show_menu=False)
+                    continue
+            if text == "ขอไอดีกลุ่ม":
+                reply_msg(reply_token, line_token, f"✅ Group ID:\n{group_id}" if group_id else "❌ ใช้ได้เฉพาะในกลุ่มครับ")
+                continue
+            if text in ["คำสั่ง","ช่วยด้วย","help"]:
+                reply_msg(reply_token, line_token,
+                    "📋 คำสั่งทั้งหมด\n─────────────────\n"
+                    "👤 ลงทะเบียน [ชื่อ] → ลงทะเบียนครั้งแรก\n"
+                    "📸 ส่งรูปภาพ → เช็คอินเข้างาน\n"
+                    "📅 ตารางงาน → ดูตาราง 7 วัน\n"
+                    "🏁 เลิกงาน → บันทึกเวลาออก\n"
+                    "🌴 ลางาน → แจ้งลา (รอหัวหน้าอนุมัติ)\n"
+                    "🆔 ขอไอดีกลุ่ม → ดู Group ID")
+                continue
+            if text in ["เช็คอิน","checkin"]:
                 emp = conn.execute("SELECT name FROM employees WHERE line_user_id=?", (user_id,)).fetchone()
                 if not emp:
-                    reply_msg(reply_token, line_token, "❌ คุณยังไม่ได้ลงทะเบียน\nกรุณาพิมพ์: ลงทะเบียน [ชื่อของคุณ]")
-                    continue
-                
-                emp_name = emp['name']
-                now = datetime.now() + timedelta(hours=7) # เวลาไทย (เผื่อ Render รันเวลา UTC)
-                today_str = now.strftime('%Y-%m-%d')
-                time_str = now.strftime('%H:%M')
-                
-                # เช็คว่าวันนี้มีกะไหม?
-                sc = conn.execute("""
-                    SELECT s.start_time 
-                    FROM work_schedule w 
-                    JOIN work_shifts s ON w.shift_id = s.id 
-                    WHERE w.emp_name=? AND w.work_date=?
-                """, (emp_name, today_str)).fetchone()
-                
-                if not sc:
-                    reply_msg(reply_token, line_token, f"❌ {emp_name} วันนี้คุณไม่มีตารางงานนะครับ หรือเป็นวันหยุดครับ")
-                    continue
-                
-                # เช็คว่าเคยเช็คอินไปแล้วหรือยังในวันนี้
-                has_checked = conn.execute("SELECT id FROM payroll_daily WHERE emp_name=? AND work_date=?", (emp_name, today_str)).fetchone()
-                if has_checked:
-                    reply_msg(reply_token, line_token, f"⚠️ {emp_name} คุณได้เช็คอินของวันนี้ไปแล้วครับ")
-                    continue
-
-                # คำนวณสาย / ตรงเวลา
-                # อนุโลมให้เข้าก่อนเวลาได้ (เช่น 09:53 ตีเป็นตรงเวลา)
-                # และถ้ามาไม่เกิน 15 นาทีของกะ (เช่น กะ 10.00 มา 10.15) ถือว่าตรงเวลา (แก้ตัวเลขได้)
-                shift_time_str = sc['start_time'] # เช่น "10:00"
-                shift_dt = datetime.strptime(f"{today_str} {shift_time_str}", "%Y-%m-%d %H:%M")
-                
-                is_late = False
-                status_msg = "✅ ตรงเวลา"
-                
-                if now > shift_dt + timedelta(minutes=15): 
-                    is_late = True
-                    status_msg = "⏰ มาสาย"
-
-                # บันทึกลงตารางเงินเดือนรายวันอัตโนมัติ!
-                try:
-                    from database import IS_PG
-                    if IS_PG:
-                        conn.execute("INSERT INTO payroll_daily (emp_name, work_date, status, is_late, ot_hours, note) VALUES (%s,%s,'present',%s,0,%s)", 
-                                     (emp_name, today_str, is_late, f"เช็คอิน {time_str} น."))
+                    reply_msg(reply_token, line_token, "❌ ยังไม่ได้ลงทะเบียน\nพิมพ์: ลงทะเบียน [ชื่อ]")
+                else:
+                    reply_msg(reply_token, line_token, f"📸 {emp['name']} กรุณาถ่ายรูป/ส่งรูปภาพเพื่อเช็คอินครับ", show_menu=False)
+                continue
+            if text == "เลิกงาน":
+                emp = conn.execute("SELECT name,role FROM employees WHERE line_user_id=?", (user_id,)).fetchone()
+                if not emp:
+                    reply_msg(reply_token, line_token, "❌ ยังไม่ได้ลงทะเบียน\nพิมพ์: ลงทะเบียน [ชื่อ]")
+                else:
+                    checked = conn.execute("SELECT note FROM payroll_daily WHERE emp_name=? AND work_date=?", (emp["name"],today_str)).fetchone()
+                    checkin_time = None
+                    if checked and checked["note"]:
+                        m2 = _re.search(r"เช็คอิน (\d+:\d+)", checked["note"])
+                        if m2: checkin_time = m2.group(1)
+                    is_owner = emp["role"] in ["owner","admin"]
+                    if not checkin_time and not is_owner:
+                        reply_msg(reply_token, line_token, f"❌ {emp['name']} ยังไม่ได้เช็คอินวันนี้ครับ")
+                        continue
+                    if not checkin_time: checkin_time = time_str
+                    cin_dt = datetime.strptime(f"{today_str} {checkin_time}", "%Y-%m-%d %H:%M")
+                    if cin_dt > now: cin_dt -= timedelta(days=1)
+                    worked_mins = int((now-cin_dt).total_seconds()/60)
+                    wh,wm = worked_mins//60, worked_mins%60
+                    if worked_mins < 480: status = "⚠️ ออกก่อนเวลา"
+                    elif worked_mins <= 510: status = "✅ ออกงานตรงเวลา"
                     else:
-                        conn.execute("INSERT INTO payroll_daily (emp_name, work_date, status, is_late, ot_hours, note) VALUES (?,?,'present',?,0,?)", 
-                                     (emp_name, today_str, is_late, f"เช็คอิน {time_str} น."))
+                        oth,otm = (worked_mins-480)//60,(worked_mins-480)%60
+                        status = f"⏰ โอที {oth} ชม. {otm} นาที\nกรุณาแจ้ง CEO โต๋"
+                    existing = conn.execute("SELECT id,note FROM payroll_daily WHERE emp_name=? AND work_date=?", (emp["name"],today_str)).fetchone()
+                    if existing:
+                        conn.execute("UPDATE payroll_daily SET note=? WHERE id=?", ((existing["note"] or "")+f" | เลิกงาน {time_str} น.",existing["id"]))
+                    else:
+                        conn.execute("INSERT INTO payroll_daily (emp_name,work_date,status,is_late,ot_hours,note) VALUES (?,?,'present',0,0,?)",
+                            (emp["name"],today_str,f"เลิกงาน {time_str} น."))
                     conn.commit()
-                    
-                    # ตอบกลับในกลุ่ม
-                    reply_msg(reply_token, line_token, f"📸 เช็คอินสำเร็จ!\n👤 พนักงาน: {emp_name}\n🕒 เวลาเข้า: {time_str} น.\n📌 สถานะ: {status_msg}")
-                except Exception as e:
-                    reply_msg(reply_token, line_token, f"❌ ระบบบันทึกข้อมูลมีปัญหา: {e}")
-
+                    reply_msg(reply_token, line_token,
+                        f"🏁 บันทึกเลิกงานสำเร็จ!\n👤 {emp['name']}\n🕒 {time_str} น.\n⏱ ทำงาน: {wh} ชม. {wm} นาที\n📌 {status}")
+                continue
+            if text == "ตารางงาน":
+                emp = conn.execute("SELECT name FROM employees WHERE line_user_id=?", (user_id,)).fetchone()
+                if not emp:
+                    reply_msg(reply_token, line_token, "❌ ยังไม่ได้ลงทะเบียน\nพิมพ์: ลงทะเบียน [ชื่อ]")
+                else:
+                    d7 = (now+timedelta(days=6)).strftime("%Y-%m-%d")
+                    rows = conn.execute("""SELECT w.work_date,s.shift_name,s.start_time,s.end_time,s.color
+                        FROM work_schedule w JOIN work_shifts s ON w.shift_id=s.id
+                        WHERE w.emp_name=? AND w.work_date>=? AND w.work_date<=?
+                        ORDER BY w.work_date""", (emp["name"],today_str,d7)).fetchall()
+                    day_s = ["จ.","อ.","พ.","พฤ.","ศ.","ส.","อา."]
+                    if rows:
+                        contents = []
+                        for r in rows:
+                            d = datetime.strptime(r["work_date"],"%Y-%m-%d")
+                            is_today = r["work_date"]==today_str
+                            color = r["color"] or "#6366f1"
+                            contents.append({"type":"box","layout":"horizontal",
+                                "backgroundColor":"#1a2035" if is_today else "#0d1520",
+                                "cornerRadius":"8px","margin":"sm","paddingAll":"10px",
+                                "borderWidth":"2px" if is_today else "1px",
+                                "borderColor":color if is_today else "#333333",
+                                "contents":[
+                                    {"type":"box","layout":"vertical","width":"60px","contents":[
+                                        {"type":"text","text":day_s[d.weekday()],"size":"sm","color":"#aaaaaa","align":"center"},
+                                        {"type":"text","text":d.strftime("%d/%m"),"size":"lg","weight":"bold",
+                                         "color":"#ffffff" if is_today else "#cccccc","align":"center"}]},
+                                    {"type":"separator","color":"#333333"},
+                                    {"type":"box","layout":"vertical","flex":1,"paddingStart":"12px","contents":[
+                                        {"type":"text","text":r["shift_name"],"weight":"bold","color":color,"size":"md"},
+                                        {"type":"text","text":f"{r['start_time']} — {r['end_time']}","size":"sm","color":"#aaaaaa"}]}]})
+                        flex = {"type":"flex","altText":f"ตารางงาน {emp['name']}",
+                            "contents":{"type":"bubble","size":"giga",
+                                "header":{"type":"box","layout":"vertical","backgroundColor":"#0a1628","paddingAll":"16px",
+                                    "contents":[
+                                        {"type":"text","text":"📅 ตารางงาน","color":"#38bdf8","weight":"bold","size":"lg"},
+                                        {"type":"text","text":emp["name"],"color":"#ffffff","weight":"bold","size":"xxl"},
+                                        {"type":"text","text":"7 วันข้างหน้า","color":"#666666","size":"sm"}]},
+                                "body":{"type":"box","layout":"vertical","backgroundColor":"#0d1520","paddingAll":"8px","contents":contents},
+                                "footer":{"type":"box","layout":"vertical","backgroundColor":"#0a1628","paddingAll":"12px",
+                                    "contents":[{"type":"text","text":"G2 SNOOKER — Jarvis","color":"#444444","size":"xs","align":"center"}]}}}
+                    else:
+                        flex = {"type":"flex","altText":"ไม่มีตารางงาน",
+                            "contents":{"type":"bubble","body":{"type":"box","layout":"vertical","contents":[
+                                {"type":"text","text":"📅 ตารางงาน","color":"#38bdf8","weight":"bold"},
+                                {"type":"text","text":emp["name"],"color":"#ffffff","weight":"bold","size":"xl"},
+                                {"type":"text","text":"ไม่มีตารางงานใน 7 วันข้างหน้า","color":"#aaaaaa","margin":"md"}]}}}
+                    try:
+                        _d = json.dumps({"replyToken":reply_token,"messages":[flex]},ensure_ascii=False).encode("utf-8")
+                        _r = urllib.request.Request("https://api.line.me/v2/bot/message/reply",data=_d,
+                            headers={"Content-Type":"application/json","Authorization":f"Bearer {line_token}"})
+                        urllib.request.urlopen(_r, timeout=5)
+                    except Exception as e:
+                        print(f"[FLEX ERR] {e}")
+                        reply_msg(reply_token, line_token, f"📅 ตารางงาน {emp['name']}\nไม่สามารถแสดงได้ครับ")
+                continue
+            if text in ["ลางาน","day off"]:
+                emp = conn.execute("SELECT name FROM employees WHERE line_user_id=?", (user_id,)).fetchone()
+                if not emp:
+                    reply_msg(reply_token, line_token, "❌ ยังไม่ได้ลงทะเบียน\nพิมพ์: ลงทะเบียน [ชื่อ]")
+                else:
+                    try:
+                        conn.execute("INSERT INTO line_conv_state (user_id,state,data) VALUES (?,?,'{}') ON CONFLICT(user_id) DO UPDATE SET state=EXCLUDED.state,data=EXCLUDED.data",
+                            (user_id,"leave_step1")); conn.commit()
+                    except: conn.rollback()
+                    reply_msg(reply_token, line_token,
+                        f"🌴 แจ้งลางาน — {emp['name']}\n{'─'*20}\n"
+                        f"📅 ระบุวันที่ต้องการลา\nรูปแบบ: วว/ดด/ปปปป\nเช่น: 20/04/2026\n\nพิมพ์ 'ยกเลิก' เพื่อออก", show_menu=False)
+                continue
+            if text.startswith("อนุมัติ "):
+                parts = text.split()
+                if len(parts) >= 3:
+                    req_name,req_date_raw = parts[1],parts[2]
+                    try:
+                        d,m,y = req_date_raw.split("/")
+                        req_date = f"{y}-{m.zfill(2)}-{d.zfill(2)}"
+                    except: req_date = req_date_raw
+                    approver = conn.execute("SELECT name,role FROM employees WHERE line_user_id=?", (user_id,)).fetchone()
+                    if not approver or approver["role"] not in ["admin","owner"]:
+                        reply_msg(reply_token, line_token, "❌ คุณไม่มีสิทธิ์อนุมัติลางานครับ")
+                    else:
+                        req = conn.execute("SELECT * FROM leave_requests WHERE emp_name=? AND leave_date=? AND status='pending'",
+                            (req_name,req_date)).fetchone()
+                        if not req:
+                            reply_msg(reply_token, line_token, f"❌ ไม่พบคำขอลาของ {req_name} วันที่ {req_date_raw}")
+                        else:
+                            conn.execute("UPDATE leave_requests SET status='approved',approved_by=? WHERE id=?",
+                                (approver["name"],req["id"]))
+                            conn.execute("INSERT INTO payroll_daily (emp_name,work_date,status,is_late,ot_hours,note) VALUES (?,?,'leave',0,0,?) ON CONFLICT(emp_name,work_date) DO UPDATE SET status='leave',note=EXCLUDED.note",
+                                (req_name,req_date,f"ลางาน: {req['reason']} (อนุมัติโดย {approver['name']})"))
+                            conn.commit()
+                            try:
+                                tok = settings.get("line_checkin_token","").strip() or line_token
+                                grp = settings.get("line_checkin_group_id","").strip() or group_id
+                                if tok and grp:
+                                    gm = (f"📢 แจ้งเตือนตารางงาน\n{'─'*20}\n"
+                                          f"👤 {req_name} ได้รับอนุมัติลางาน\n"
+                                          f"📅 วันที่: {req_date_raw} กะ {req['shift_name']}\n\n"
+                                          f"⚠️ กรุณาเช็คตารางงานของตัวเอง\nอาจมีการเปลี่ยนแปลงครับ")
+                                    _d = json.dumps({"to":grp,"messages":[{"type":"text","text":gm}]},ensure_ascii=False).encode("utf-8")
+                                    _r = urllib.request.Request("https://api.line.me/v2/bot/message/push",data=_d,
+                                        headers={"Content-Type":"application/json","Authorization":f"Bearer {tok}"})
+                                    urllib.request.urlopen(_r, timeout=5)
+                            except Exception as e: print(f"[WARN] {e}")
+                            reply_msg(reply_token, line_token, f"✅ อนุมัติลางาน {req_name} วันที่ {req_date_raw} สำเร็จครับ")
+                else:
+                    reply_msg(reply_token, line_token, "รูปแบบ: อนุมัติ [ชื่อ] [วว/ดด/ปปปป]")
+                continue
+            if text.startswith("ลงทะเบียน "):
+                emp_name = text.replace("ลงทะเบียน ","").strip()
+                conn.execute("UPDATE employees SET line_user_id=? WHERE name=?", (user_id,emp_name)); conn.commit()
+                check = conn.execute("SELECT name FROM employees WHERE line_user_id=?", (user_id,)).fetchone()
+                if check:
+                    reply_msg(reply_token, line_token, f"✅ ลงทะเบียนสำเร็จ!\n👤 คุณคือ '{check['name']}'\n\n📸 ส่งรูปภาพเพื่อเช็คอินได้เลยครับ")
+                else:
+                    reply_msg(reply_token, line_token, f"❌ ไม่พบชื่อ '{emp_name}' ในระบบครับ")
+                continue
+            known = ["ลงทะเบียน","ตารางงาน","เลิกงาน","ลางาน","คำสั่ง","ช่วยด้วย","help","ขอไอดีกลุ่ม","เช็คอิน","อนุมัติ"]
+            if not any(text==k or text.startswith(k+" ") for k in known):
+                reply_msg(reply_token, line_token, "⚠️ ไม่รู้จักคำสั่งนี้ครับ\nพิมพ์ 'คำสั่ง' เพื่อดูรายการ")
+            continue
+        elif msg_type == "image":
+            emp = conn.execute("SELECT name,role FROM employees WHERE line_user_id=?", (user_id,)).fetchone()
+            if not emp:
+                reply_msg(reply_token, line_token, "❌ ยังไม่ได้ลงทะเบียน\nพิมพ์: ลงทะเบียน [ชื่อ]")
+                continue
+            emp_name = emp["name"]
+            is_owner = emp["role"] in ["owner","admin"]
+            sc = conn.execute("""SELECT s.start_time FROM work_schedule w
+                JOIN work_shifts s ON w.shift_id=s.id
+                WHERE w.emp_name=? AND w.work_date=?""", (emp_name,today_str)).fetchone()
+            if not sc and not is_owner:
+                reply_msg(reply_token, line_token, f"❌ {emp_name} วันนี้ไม่มีตารางงานครับ")
+                continue
+            if not sc: sc = {"start_time":time_str}
+            has_checked = conn.execute("SELECT id,note FROM payroll_daily WHERE emp_name=? AND work_date=?",
+                (emp_name,today_str)).fetchone()
+            if has_checked:
+                if has_checked["note"] and "เลิกงาน" in has_checked["note"]:
+                    if "เช็คอินกะ2" in has_checked["note"]:
+                        reply_msg(reply_token, line_token, f"⚠️ {emp_name} เช็คอินกะ 2 ไปแล้วครับ")
+                        continue
+                    conn.execute("UPDATE payroll_daily SET note=? WHERE id=?",
+                        ((has_checked["note"] or "")+f" | เช็คอินกะ2 {time_str} น.",has_checked["id"]))
+                    conn.commit()
+                    reply_msg(reply_token, line_token, f"📸 เช็คอินกะ 2 สำเร็จ!\n👤 {emp_name}\n🕒 {time_str} น.")
+                else:
+                    reply_msg(reply_token, line_token, f"⚠️ {emp_name} เช็คอินแล้ววันนี้\nหากทำ 2 กะ พิมพ์ 'เลิกงาน' ก่อนครับ")
+                continue
+            shift_dt = datetime.strptime(f"{today_str} {sc['start_time']}", "%Y-%m-%d %H:%M")
+            if shift_dt > now + timedelta(hours=6): shift_dt -= timedelta(days=1)
+            early_mins = int((shift_dt-now).total_seconds()/60)
+            is_early = early_mins > 15
+            is_late = now > shift_dt + timedelta(minutes=15)
+            if is_early: status_msg = f"🌟 มาก่อนเวลา {early_mins} นาที"
+            elif is_late: status_msg = "⏰ มาสาย"
+            else: status_msg = "✅ ตรงเวลา"
+            try:
+                conn.execute("INSERT INTO payroll_daily (emp_name,work_date,status,is_late,ot_hours,note) VALUES (?,?,'present',?,0,?)",
+                    (emp_name,today_str,int(is_late),f"เช็คอิน {time_str} น."))
+                conn.commit()
+            except: conn.rollback()
+            extra = ""
+            if is_early:
+                extra = f"\n\n🎉 ว้าว! มาก่อนเวลา {early_mins} นาที\nหากยังไม่ได้กินข้าวหรือแต่งหน้า\nทำให้เสร็จก่อนถึงเวลาเข้างานนะครับ 😊"
+            reply_msg(reply_token, line_token,
+                f"📸 เช็คอินสำเร็จ!\n👤 {emp_name}\n🕒 {time_str} น.\n📌 {status_msg}{extra}")
+            continue
     conn.close()
     return "OK", 200
+
 
 def reply_msg(reply_token, token, text, show_menu=True):
     import json, urllib.request
