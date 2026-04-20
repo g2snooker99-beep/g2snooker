@@ -1633,22 +1633,28 @@ def line_webhook():
     conn.close()
     return "OK", 200
 
-def reply_msg(reply_token, token, text):
-    """ฟังก์ชันผู้ช่วยสำหรับให้บอทตอบกลับใน LINE"""
-    import json
-    import urllib.request
+def reply_msg(reply_token, token, text, show_menu=True):
+    import json, urllib.request
     url = "https://api.line.me/v2/bot/message/reply"
-    data = json.dumps({
-        "replyToken": reply_token,
-        "messages": [{"type": "text", "text": text}]
-    }).encode('utf-8')
-    req = urllib.request.Request(url, data=data, headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}"
-    })
+    msg = {"type": "text", "text": str(text)}
+    if show_menu:
+        msg["quickReply"] = {
+            "items": [
+                {"type":"action","action":{"type":"message","label":"เช็คอิน","text":"เช็คอิน"}},
+                {"type":"action","action":{"type":"message","label":"เลิกงาน","text":"เลิกงาน"}},
+                {"type":"action","action":{"type":"message","label":"ตารางงาน","text":"ตารางงาน"}},
+                {"type":"action","action":{"type":"message","label":"ลางาน","text":"ลางาน"}},
+                {"type":"action","action":{"type":"message","label":"คำสั่ง","text":"คำสั่ง"}}
+            ]
+        }
+    payload = json.dumps({"replyToken": reply_token, "messages": [msg]}, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(url, data=payload,
+        headers={"Content-Type": "application/json; charset=utf-8",
+                 "Authorization": f"Bearer {token}"})
     try:
         urllib.request.urlopen(req, timeout=5)
-    except: pass
+    except Exception as e:
+        print(f"[REPLY ERR] {e}")
 
 if __name__ == "__main__":
     import os
