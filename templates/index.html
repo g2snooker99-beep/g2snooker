@@ -3146,7 +3146,50 @@ function applyEmpFilter(){
 }
 
 // ─── SHIFT ───────────────────────────────────────────────────
-async function openShiftModal(){await loadReport();new bootstrap.Modal(document.getElementById('shiftModal')).show();}
+async function openShiftModal(){
+  await loadReport();
+  const d = await (await fetch('/api/report/dashboard')).json();
+  const exps = await (await fetch('/api/expenses')).json();
+  const bills = d.daily_bills || [];
+  const sales = d.sales || 0;
+  const exp = d.expenses || 0;
+  const cashSales = d.cash_sales || 0;
+  const transferSales = d.transfer_sales || 0;
+  const now = new Date();
+  document.getElementById('shift-meta').innerText = `กะ ${now.toLocaleDateString('th-TH')} | พนักงาน: ${currentUser}`;
+  document.getElementById('shift-shop-name').innerText = localStorage.getItem('shop_name') || 'G2 SNOOKER';
+  document.getElementById('shift-sales').innerText = sales.toFixed(2) + ' ฿';
+  document.getElementById('shift-exp').innerText = exp.toFixed(2) + ' ฿';
+  document.getElementById('shift-net').innerText = (sales - exp).toFixed(2) + ' ฿';
+  document.getElementById('shift-cash').innerText = cashSales.toFixed(2) + ' ฿';
+  document.getElementById('shift-transfer').innerText = transferSales.toFixed(2) + ' ฿';
+  document.getElementById('shift-cash-income').innerText = '+ ' + cashSales.toFixed(2) + ' ฿';
+  document.getElementById('shift-exp-out').innerText = '- ' + exp.toFixed(2) + ' ฿';
+  document.getElementById('shift-bill-count').innerText = bills.length;
+  document.getElementById('shift-bills-body').innerHTML = bills.map(b =>
+    `<tr><td class="text-warning">${b.bill_no||'-'}</td><td>${b.table_name||'-'}</td>
+     <td>${(b.created_at||'').substr(11,5)}</td>
+     <td>${(b.time_fee||0).toFixed(2)}</td>
+     <td>${(b.food_fee||0).toFixed(2)}</td>
+     <td class="text-info fw-bold">${(b.total||0).toFixed(2)}</td>
+     <td><span class="badge ${b.payment_method==='โอน'?'bg-info text-dark':'bg-success'}">${b.payment_method||'เงินสด'}</span></td></tr>`
+  ).join('') || '<tr><td colspan="7" class="text-muted">ไม่มีบิล</td></tr>';
+  document.getElementById('shift-exp-count').innerText = exps.length;
+  document.getElementById('shift-exp-body').innerHTML = exps.map(e =>
+    `<tr><td>${(e.created_at||'').substr(11,5)}</td><td>${e.category||'-'}</td>
+     <td>${e.note||'-'}</td><td class="text-danger">${e.amount} ฿</td></tr>`
+  ).join('') || '<tr><td colspan="4" class="text-muted">ไม่มีรายจ่าย</td></tr>';
+  const _sc = localStorage.getItem('exc_total_cash');
+  const _scVal = (_sc !== null && _sc !== '') ? parseFloat(_sc) : startingCash;
+  document.getElementById('shift-starting').innerText = _scVal.toLocaleString() + ' ฿';
+  document.getElementById('shift-expected').innerText = (_scVal + cashSales - exp).toFixed(2) + ' ฿';
+  new bootstrap.Modal(document.getElementById('shiftModal')).show();
+}
+
+function toggleShiftSection(id){
+  const el = document.getElementById(id);
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
 function printShiftReport(){
   const sales=document.getElementById('shift-sales').innerText;
   const expenses=document.getElementById('shift-exp').innerText;
