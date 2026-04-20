@@ -1055,6 +1055,74 @@ def shop_schedule():
     })
 
 # ── TABLE NAME EDIT ───────────────────────────────────────────
+@app.route("/api/leave_requests", methods=["GET"])
+def get_leave_requests():
+    conn = get_db_connection()
+    try:
+        if IS_PG:
+            conn.execute("""CREATE TABLE IF NOT EXISTS leave_requests (
+                id SERIAL PRIMARY KEY, emp_name TEXT, leave_date TEXT,
+                shift_name TEXT, reason TEXT, status TEXT DEFAULT 'pending',
+                approved_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        else:
+            conn.execute("""CREATE TABLE IF NOT EXISTS leave_requests (
+                id INTEGER PRIMARY KEY, emp_name TEXT, leave_date TEXT,
+                shift_name TEXT, reason TEXT, status TEXT DEFAULT 'pending',
+                approved_by TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        conn.commit()
+    except: conn.rollback()
+    rows = conn.execute("SELECT * FROM leave_requests ORDER BY id DESC").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/leave_requests/<int:lid>", methods=["POST"])
+def update_leave_request(lid):
+    d = request.json
+    status = d.get('status','pending')
+    approved_by = d.get('approved_by','')
+    conn = get_db_connection()
+    try:
+        req = conn.execute("SELECT * FROM leave_requests WHERE id=?", (lid,)).fetchone()
+        if req and status == 'approved':
+            conn.execute("""INSERT INTO payroll_daily (emp_name,work_date,status,is_late,ot_hours,note)
+                VALUES (?,?,'leave',0,0,?)
+                ON CONFLICT(emp_name,work_date) DO UPDATE SET status='leave',note=EXCLUDED.note""",
+                (req['emp_name'], req['leave_date'],
+                 f"ลางาน: {req['reason']} (อนุมัติโดย {approved_by})"))
+        conn.execute("UPDATE leave_requests SET status=?, approved_by=? WHERE id=?",
+            (status, approved_by, lid))
+        conn.commit()
+        # แจ้งกลุ่ม LINE
+        if status == 'approved':
+            try:
+                settings = {r["setting_key"]: r["setting_value"] for r in
+                    conn.execute("SELECT setting_key,setting_value FROM system_settings").fetchall()}
+                tok = settings.get("line_checkin_token","").strip()
+                grp = settings.get("line_checkin_group_id","").strip()
+                if tok and grp and req:
+                    import urllib.request as _ur, json as _js
+                    leave_date_fmt = req['leave_date']
+                    try:
+                        y,m,dd = req['leave_date'].split('-')
+                        leave_date_fmt = f"{dd}/{m}/{y}"
+                    except: pass
+                    msg = (f"📢 แจ้งเตือนตารางงาน\n{'─'*20}\n"
+                           f"👤 {req['emp_name']} ได้รับอนุมัติลางาน\n"
+                           f"📅 วันที่: {leave_date_fmt} กะ {req['shift_name']}\n\n"
+                           f"⚠️ กรุณาเช็คตารางงานของตัวเอง\nอาจมีการเปลี่ยนแปลงครับ")
+                    _d = _js.dumps({"to":grp,"messages":[{"type":"text","text":msg}]},
+                        ensure_ascii=False).encode("utf-8")
+                    _r = _ur.Request("https://api.line.me/v2/bot/message/push", data=_d,
+                        headers={"Content-Type":"application/json","Authorization":f"Bearer {tok}"})
+                    _ur.urlopen(_r, timeout=5)
+            except Exception as e: print(f"[WARN LINE] {e}")
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({"status":"error","msg":str(e)}), 500
+    conn.close()
+    return jsonify({"status":"success"})
+
 @app.route("/api/tables_config/<int:tid>", methods=["PUT"])
 def edit_table_name(tid):
     d = request.json
