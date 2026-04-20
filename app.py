@@ -1093,7 +1093,8 @@ def update_leave_request(lid):
             (status, approved_by, lid))
         conn.commit()
         # แจ้งกลุ่ม LINE
-        if status == 'approved':
+        # แจ้งกลุ่ม LINE
+        if status in ['approved', 'rejected']:
             try:
                 settings = {r["setting_key"]: r["setting_value"] for r in
                     conn.execute("SELECT setting_key,setting_value FROM system_settings").fetchall()}
@@ -1106,10 +1107,20 @@ def update_leave_request(lid):
                         y,m,dd = req['leave_date'].split('-')
                         leave_date_fmt = f"{dd}/{m}/{y}"
                     except: pass
-                    msg = (f"📢 แจ้งเตือนตารางงาน\n{'─'*20}\n"
-                           f"👤 {req['emp_name']} ได้รับอนุมัติลางาน\n"
-                           f"📅 วันที่: {leave_date_fmt} กะ {req['shift_name']}\n\n"
-                           f"⚠️ กรุณาเช็คตารางงานของตัวเอง\nอาจมีการเปลี่ยนแปลงครับ")
+                    if status == 'approved':
+                        msg = (f"✅ อนุมัติลางานแล้ว\n{'─'*20}\n"
+                               f"👤 {req['emp_name']}\n"
+                               f"📅 วันที่: {leave_date_fmt} กะ {req['shift_name']}\n"
+                               f"📝 เหตุผล: {req['reason']}\n"
+                               f"✍️ อนุมัติโดย: {approved_by}\n\n"
+                               f"⚠️ กรุณาเช็คตารางงานของตัวเอง\nอาจมีการเปลี่ยนแปลงครับ")
+                    else:
+                        msg = (f"❌ คำขอลางานถูกปฏิเสธ\n{'─'*20}\n"
+                               f"👤 {req['emp_name']}\n"
+                               f"📅 วันที่: {leave_date_fmt} กะ {req['shift_name']}\n"
+                               f"📝 เหตุผล: {req['reason']}\n"
+                               f"✍️ ปฏิเสธโดย: {approved_by}\n\n"
+                               f"กรุณาติดต่อหัวหน้างานครับ")
                     _d = _js.dumps({"to":grp,"messages":[{"type":"text","text":msg}]},
                         ensure_ascii=False).encode("utf-8")
                     _r = _ur.Request("https://api.line.me/v2/bot/message/push", data=_d,
