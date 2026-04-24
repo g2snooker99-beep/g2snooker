@@ -1394,7 +1394,13 @@ function renderGrid(){
 
     grid.innerHTML+=`<div class="col-md-4 col-lg-3"><div class="table-card ${t.active?'active':''}">
       ${minTxt}
-      <div class="d-flex justify-content-between mb-1"><h6 class="fw-bold m-0">${t.name}</h6><small class="text-muted">${t.type=='snooker'?'สนุ๊กเกอร์':'อาหาร'}</small></div>
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <div class="d-flex align-items-center gap-1">
+          <h6 class="fw-bold m-0">${t.name}</h6>
+          ${hasPerm('settings')?`<button onclick="renamePosTable(${t.id},'${t.name}')" style="background:none;border:none;padding:0 2px;color:#64748b;font-size:0.75rem;cursor:pointer" title="แก้ชื่อโต๊ะ">✏️</button>`:''}
+        </div>
+        <small class="text-muted">${t.type=='snooker'?'สนุ๊กเกอร์':'อาหาร'}</small>
+      </div>
       ${noteLabel}${t.type=='snooker'?`<div class="timer ${t.active?'':'text-muted'}">${timeStr}</div>`:'<div class="py-1"></div>'}
       ${t.active?costHtml:''}
       <div class="order-mini">${trCost+oRows}</div>
@@ -2862,6 +2868,16 @@ function startEditTable(id){
   document.getElementById('tedit-btn-'+id).classList.add('d-none');
   document.getElementById('tsave-btn-'+id).classList.remove('d-none');
   document.getElementById('tname-edit-'+id).focus();
+}
+
+async function renamePosTable(id, oldName){
+  const name = prompt('ชื่อโต๊ะใหม่:', oldName);
+  if(!name || name.trim()===oldName) return;
+  const r = await fetch(`/api/tables_config/${id}`,{method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:name.trim()})});
+  if(r.ok){ await updateGrid(); }
+  else alert('❌ เกิดข้อผิดพลาด');
 }
 async function saveTableName(id){
   const name=document.getElementById('tname-edit-'+id).value.trim();
