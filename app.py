@@ -1733,17 +1733,26 @@ def line_webhook():
                 if not emp:
                     reply_msg(reply_token, line_token, "❌ ยังไม่ได้ลงทะเบียน\nพิมพ์: ลงทะเบียน [ชื่อ]")
                 else:
+                    yesterday_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
                     checked = conn.execute("SELECT note FROM payroll_daily WHERE emp_name=? AND work_date=?", (emp["name"],today_str)).fetchone()
+                    checkin_date = today_str
                     checkin_time = None
                     if checked and checked["note"]:
                         m2 = _re.search(r"เช็คอิน (\d+:\d+)", checked["note"])
                         if m2: checkin_time = m2.group(1)
+                    if not checkin_time:
+                        checked_yest = conn.execute("SELECT note FROM payroll_daily WHERE emp_name=? AND work_date=?", (emp["name"],yesterday_str)).fetchone()
+                        if checked_yest and checked_yest["note"]:
+                            m2 = _re.search(r"เช็คอิน (\d+:\d+)", checked_yest["note"])
+                            if m2:
+                                checkin_time = m2.group(1)
+                                checkin_date = yesterday_str
                     is_owner = emp["role"] in ["owner","admin"]
                     if not checkin_time and not is_owner:
                         reply_msg(reply_token, line_token, f"❌ {emp['name']} ยังไม่ได้เช็คอินวันนี้ครับ")
                         continue
                     if not checkin_time: checkin_time = time_str
-                    cin_dt = datetime.strptime(f"{today_str} {checkin_time}", "%Y-%m-%d %H:%M")
+                    cin_dt = datetime.strptime(f"{checkin_date} {checkin_time}", "%Y-%m-%d %H:%M")
                     if cin_dt > now: cin_dt -= timedelta(days=1)
                     worked_mins = int((now-cin_dt).total_seconds()/60)
                     wh,wm = worked_mins//60, worked_mins%60
@@ -1752,12 +1761,12 @@ def line_webhook():
                     else:
                         oth,otm = (worked_mins-480)//60,(worked_mins-480)%60
                         status = f"⏰ โอที {oth} ชม. {otm} นาที\nกรุณาแจ้ง CEO โต๋"
-                    existing = conn.execute("SELECT id,note FROM payroll_daily WHERE emp_name=? AND work_date=?", (emp["name"],today_str)).fetchone()
+                    existing = conn.execute("SELECT id,note FROM payroll_daily WHERE emp_name=? AND work_date=?", (emp["name"],checkin_date)).fetchone()
                     if existing:
                         conn.execute("UPDATE payroll_daily SET note=? WHERE id=?", ((existing["note"] or "")+f" | เลิกงาน {time_str} น.",existing["id"]))
                     else:
                         conn.execute("INSERT INTO payroll_daily (emp_name,work_date,status,is_late,ot_hours,note) VALUES (?,?,'present',0,0,?)",
-                            (emp["name"],today_str,f"เลิกงาน {time_str} น."))
+                            (emp["name"],checkin_date,f"เลิกงาน {time_str} น."))
                     conn.commit()
                     reply_msg(reply_token, line_token,
                         f"🏁 บันทึกเลิกงานสำเร็จ!\n👤 {emp['name']}\n🕒 {time_str} น.\n⏱ ทำงาน: {wh} ชม. {wm} นาที\n📌 {status}")
