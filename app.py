@@ -1760,25 +1760,23 @@ def line_webhook():
                     reply_msg(reply_token, line_token, "❌ ยังไม่ได้ลงทะเบียน\nพิมพ์: ลงทะเบียน [ชื่อ]")
                 else:
                     yesterday_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-                    checked = conn.execute("SELECT note FROM payroll_daily WHERE emp_name=? AND work_date=?", (emp["name"],today_str)).fetchone()
-                    checkin_date = today_str
-                    checkin_time = None
-                    if checked and checked["note"]:
-                        m2 = _re.search(r"เช็คอิน (\d+:\d+)", checked["note"])
-                        if m2: checkin_time = m2.group(1)
-                    if not checkin_time:
-                        checked_yest = conn.execute("SELECT note FROM payroll_daily WHERE emp_name=? AND work_date=?", (emp["name"],yesterday_str)).fetchone()
-                        if checked_yest and checked_yest["note"]:
-                            m2 = _re.search(r"เช็คอิน (\d+:\d+)", checked_yest["note"])
-                            if m2:
-                                checkin_time = m2.group(1)
-                                checkin_date = yesterday_str
                     is_owner = emp["role"] in ["owner","admin"]
-                    if not checkin_time and not is_owner:
-                        reply_msg(reply_token, line_token, f"❌ {emp['name']} ยังไม่ได้เช็คอินวันนี้ครับ")
+                    # หากะจากตาราง (วันนี้ก่อน ถ้าไม่เจอให้ลองเมื่อวาน)
+                    sc = conn.execute("""SELECT s.start_time, w.work_date FROM work_schedule w
+                        JOIN work_shifts s ON w.shift_id=s.id
+                        WHERE w.emp_name=? AND w.work_date=?""", (emp["name"],today_str)).fetchone()
+                    checkin_date = today_str
+                    if not sc:
+                        sc = conn.execute("""SELECT s.start_time, w.work_date FROM work_schedule w
+                            JOIN work_shifts s ON w.shift_id=s.id
+                            WHERE w.emp_name=? AND w.work_date=?""", (emp["name"],yesterday_str)).fetchone()
+                        if sc: checkin_date = yesterday_str
+                    if not sc and not is_owner:
+                        reply_msg(reply_token, line_token, f"❌ {emp['name']} ไม่พบตารางกะวันนี้ครับ")
                         continue
-                    if not checkin_time: checkin_time = time_str
-                    cin_dt = datetime.strptime(f"{checkin_date} {checkin_time}", "%Y-%m-%d %H:%M")
+                    # คำนวณจาก start_time ของกะ + 8 ชั่วโมง
+                    shift_start_str = sc["start_time"] if sc else time_str
+                    cin_dt = datetime.strptime(f"{checkin_date} {shift_start_str}", "%Y-%m-%d %H:%M")
                     if cin_dt > now: cin_dt -= timedelta(days=1)
                     worked_mins = int((now-cin_dt).total_seconds()/60)
                     wh,wm = worked_mins//60, worked_mins%60
@@ -1793,7 +1791,6 @@ def line_webhook():
                     else:
                         conn.execute("INSERT INTO payroll_daily (emp_name,work_date,status,is_late,ot_hours,note) VALUES (?,?,'present',0,0,?)",
                             (emp["name"],checkin_date,f"เลิกงาน {time_str} น."))
-                    conn.commit()
                     reply_msg(reply_token, line_token,
                         f"🏁 บันทึกเลิกงานสำเร็จ!\n👤 {emp['name']}\n🕒 {time_str} น.\n⏱ ทำงาน: {wh} ชม. {wm} นาที\n📌 {status}")
                 continue
@@ -1925,15 +1922,23 @@ def line_webhook():
                 continue
             emp_name = emp["name"]
             is_owner = emp["role"] in ["owner","admin"]
+            yesterday_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+            # หากะวันนี้ก่อน ถ้าไม่เจอให้ลองเมื่อวาน (กะข้ามคืน)
             sc = conn.execute("""SELECT s.start_time FROM work_schedule w
                 JOIN work_shifts s ON w.shift_id=s.id
                 WHERE w.emp_name=? AND w.work_date=?""", (emp_name,today_str)).fetchone()
+            checkin_date = today_str
+            if not sc:
+                sc = conn.execute("""SELECT s.start_time FROM work_schedule w
+                    JOIN work_shifts s ON w.shift_id=s.id
+                    WHERE w.emp_name=? AND w.work_date=?""", (emp_name,yesterday_str)).fetchone()
+                if sc: checkin_date = yesterday_str
             if not sc and not is_owner:
                 reply_msg(reply_token, line_token, f"❌ {emp_name} วันนี้ไม่มีตารางงานครับ")
                 continue
             if not sc: sc = {"start_time":time_str}
             has_checked = conn.execute("SELECT id,note FROM payroll_daily WHERE emp_name=? AND work_date=?",
-                (emp_name,today_str)).fetchone()
+                (emp_name,checkin_date)).fetchone()
             if has_checked:
                 if has_checked["note"] and "เลิกงาน" in has_checked["note"]:
                     if "เช็คอินกะ2" in has_checked["note"]:
@@ -1946,7 +1951,7 @@ def line_webhook():
                 else:
                     reply_msg(reply_token, line_token, f"⚠️ {emp_name} เช็คอินแล้ววันนี้\nหากทำ 2 กะ พิมพ์ 'เลิกงาน' ก่อนครับ")
                 continue
-            shift_dt = datetime.strptime(f"{today_str} {sc['start_time']}", "%Y-%m-%d %H:%M")
+            shift_dt = datetime.strptime(f"{checkin_date} {sc['start_time']}", "%Y-%m-%d %H:%M")
             if shift_dt > now + timedelta(hours=6): shift_dt -= timedelta(days=1)
             early_mins = int((shift_dt-now).total_seconds()/60)
             is_early = early_mins > 15
@@ -1956,7 +1961,7 @@ def line_webhook():
             else: status_msg = "✅ ตรงเวลา"
             try:
                 conn.execute("INSERT INTO payroll_daily (emp_name,work_date,status,is_late,ot_hours,note) VALUES (?,?,'present',?,0,?)",
-                    (emp_name,today_str,int(is_late),f"เช็คอิน {time_str} น."))
+                    (emp_name,checkin_date,int(is_late),f"เช็คอิน {time_str} น."))
                 conn.commit()
             except: conn.rollback()
             extra = ""
@@ -1965,7 +1970,6 @@ def line_webhook():
             reply_msg(reply_token, line_token,
                 f"📸 เช็คอินสำเร็จ!\n👤 {emp_name}\n🕒 {time_str} น.\n📌 {status_msg}{extra}")
             continue
-    conn.close()
     return "OK", 200
 
 
