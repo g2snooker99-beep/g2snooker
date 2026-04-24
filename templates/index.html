@@ -1895,33 +1895,6 @@ function _doPrintSlip(bill, qrDataUrl){
   <div class="r b lg">รวมสุทธิ: ${(bill.total||0).toFixed(2)} ฿</div><hr>
   <div class="c" style="margin-top:8px">ขอบคุณที่ใช้บริการ ${shopName}</div>
   
-<!-- Cancel Reason Modal -->
-<div class="modal fade" id="cancelReasonModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content" style="background:#1a1a2e;border:1px solid #ef4444">
-      <div class="modal-header" style="border-bottom:1px solid #333">
-        <h5 class="modal-title text-danger">🗑️ ยกเลิกโต๊ะ</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div id="cancel-table-info" class="text-info mb-3 small"></div>
-        <label class="text-muted small mb-1">เหตุผลการยกเลิก</label>
-        <select id="cancel-reason-select" class="form-select custom-input mb-2">
-          <option value="เปิดไฟร้านเฉยๆ">💡 เปิดไฟร้านเฉยๆ</option>
-          <option value="ลูกค้าเปลี่ยนใจ">🔄 ลูกค้าเปลี่ยนใจ</option>
-          <option value="กดผิด">❌ กดผิด</option>
-          <option value="นักกีฬาซ้อม">🏋️ นักกีฬาซ้อม</option>
-          <option value="อื่นๆ">📝 อื่นๆ (ระบุด้านล่าง)</option>
-        </select>
-        <input type="text" id="cancel-reason-other" class="form-control custom-input d-none" placeholder="ระบุเหตุผล...">
-      </div>
-      <div class="modal-footer" style="border-top:1px solid #333">
-        <button class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
-        <button class="btn btn-danger fw-bold" onclick="confirmCancelTable()">✅ ยืนยันยกเลิก</button>
-      </div>
-    </div>
-  </div>
-</div>
 
 <!-- Cancel Reason Modal -->
 <div class="modal fade" id="cancelReasonModal" tabindex="-1">
