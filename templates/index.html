@@ -1427,11 +1427,50 @@ async function removeOrder(tid,iid){
   await fetch('/api/order/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table_id:tid,item_id:iid,cashier:currentUser})});
   fetchMenuCache();updateGrid();
 }
+let _cancelTid = null;
 async function cancelTable(tid){
-  if(!confirm(`ยกเลิกโต๊ะ ${tid}? stock จะถูกคืนทั้งหมด`))return;
-  const cashierName=_pinConfirmerName||currentUser;
-  await fetch('/api/table/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'cancel',source:tid,cashier:cashierName})});
-  _pinConfirmerName='';
+  _cancelTid = tid;
+  const t = lastTableData[tid];
+  const el = document.getElementById('cancel-table-info');
+  if(el && t){
+    let info = `<b>${t.name}</b>`;
+    if(t.type === 'snooker' && t.start_ts){
+      const startDt = new Date(t.start_ts*1000);
+      const hh = String(startDt.getHours()).padStart(2,'0');
+      const mm = String(startDt.getMinutes()).padStart(2,'0');
+      const now = new Date();
+      const mins = Math.floor((now - startDt)/60000);
+      const wh = Math.floor(mins/60), wm = mins%60;
+      info += `<br>⏱ เปิดโต๊ะ: ${hh}:${mm} น. (${wh} ชม. ${wm} นาที)`;
+      if(t.orders && t.orders.length > 0){
+        info += `<br>🍽️ ออเดอร์: ` + t.orders.map(o=>`${o.name} x${o.qty}`).join(', ');
+      }
+    }
+    el.innerHTML = info;
+  }
+  document.getElementById('cancel-reason-other').classList.add('d-none');
+  document.getElementById('cancel-reason-select').value = 'เปิดไฟร้านเฉยๆ';
+  new bootstrap.Modal(document.getElementById('cancelReasonModal')).show();
+}
+document.addEventListener('DOMContentLoaded', function(){
+  const sel = document.getElementById('cancel-reason-select');
+  if(sel) sel.addEventListener('change', function(){
+    const other = document.getElementById('cancel-reason-other');
+    if(this.value === 'อื่นๆ') other.classList.remove('d-none');
+    else other.classList.add('d-none');
+  });
+});
+async function confirmCancelTable(){
+  if(!_cancelTid) return;
+  const sel = document.getElementById('cancel-reason-select').value;
+  const other = document.getElementById('cancel-reason-other').value.trim();
+  const reason = sel === 'อื่นๆ' ? (other || 'อื่นๆ') : sel;
+  bootstrap.Modal.getInstance(document.getElementById('cancelReasonModal')).hide();
+  const cashierName = _pinConfirmerName || currentUser;
+  await fetch('/api/table/action',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'cancel',source:_cancelTid,cashier:cashierName,reason})});
+  _pinConfirmerName = '';
+  _cancelTid = null;
   updateGrid();
 }
 async function doMove(sid){
@@ -1855,7 +1894,35 @@ function _doPrintSlip(bill, qrDataUrl){
   <div class="r">ค่าอาหาร: ${(bill.food_fee||0).toFixed(2)} ฿</div><hr>
   <div class="r b lg">รวมสุทธิ: ${(bill.total||0).toFixed(2)} ฿</div><hr>
   <div class="c" style="margin-top:8px">ขอบคุณที่ใช้บริการ ${shopName}</div>
-  </body></html>`);
+  
+<!-- Cancel Reason Modal -->
+<div class="modal fade" id="cancelReasonModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="background:#1a1a2e;border:1px solid #ef4444">
+      <div class="modal-header" style="border-bottom:1px solid #333">
+        <h5 class="modal-title text-danger">🗑️ ยกเลิกโต๊ะ</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="cancel-table-info" class="text-info mb-3 small"></div>
+        <label class="text-muted small mb-1">เหตุผลการยกเลิก</label>
+        <select id="cancel-reason-select" class="form-select custom-input mb-2">
+          <option value="เปิดไฟร้านเฉยๆ">💡 เปิดไฟร้านเฉยๆ</option>
+          <option value="ลูกค้าเปลี่ยนใจ">🔄 ลูกค้าเปลี่ยนใจ</option>
+          <option value="กดผิด">❌ กดผิด</option>
+          <option value="นักกีฬาซ้อม">🏋️ นักกีฬาซ้อม</option>
+          <option value="อื่นๆ">📝 อื่นๆ (ระบุด้านล่าง)</option>
+        </select>
+        <input type="text" id="cancel-reason-other" class="form-control custom-input d-none" placeholder="ระบุเหตุผล...">
+      </div>
+      <div class="modal-footer" style="border-top:1px solid #333">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+        <button class="btn btn-danger fw-bold" onclick="confirmCancelTable()">✅ ยืนยันยกเลิก</button>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>`);
   if(qrDataUrl){
     w.document.write('<hr><div style="text-align:center"><b>สแกนเพื่อชำระเงิน</b><br><img src="'+qrDataUrl+'" style="width:160px;height:160px;margin-top:4px"></div>');
   }

@@ -539,13 +539,15 @@ def table_action():
             conn.execute("UPDATE inventory SET stock_qty=stock_qty+? WHERE id=?",(o['qty'],int(o['id'])))
         detail=", ".join([f"{o['name']} x{o['qty']}" for o in orders_snap]) if orders_snap else "ไม่มีออเดอร์"
         cashier=d.get('cashier','ไม่ระบุ')
+        reason=d.get('reason','')
         try:
             if IS_PG:
                 conn.execute("CREATE TABLE IF NOT EXISTS cancel_logs (id SERIAL PRIMARY KEY, log_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
             else:
                 conn.execute("CREATE TABLE IF NOT EXISTS cancel_logs (id INTEGER PRIMARY KEY, log_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
+            detail_with_reason = f"{detail} | เหตุผล: {reason}" if reason else detail
             conn.execute("INSERT INTO cancel_logs (log_type,table_name,detail,cashier,created_at) VALUES (?,?,?,?,?)",
-                ('ยกเลิกโต๊ะ', tab_name, detail, cashier, datetime.now().isoformat()))
+                ('ยกเลิกโต๊ะ', tab_name, detail_with_reason, cashier, datetime.now().isoformat()))
         except Exception as le:
             print(f"[WARN] cancel_log insert: {le}")
         conn.commit(); conn.close()
