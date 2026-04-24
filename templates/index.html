@@ -1448,9 +1448,13 @@ async function cancelTable(tid){
     }
     el.innerHTML = info;
   }
-  document.getElementById('cancel-reason-other').classList.add('d-none');
-  document.getElementById('cancel-reason-select').value = 'เปิดไฟร้านเฉยๆ';
-  new bootstrap.Modal(document.getElementById('cancelReasonModal')).show();
+  const _ro = document.getElementById('cancel-reason-other');
+  const _rs = document.getElementById('cancel-reason-select');
+  const _rm = document.getElementById('cancelReasonModal');
+  if(!_ro || !_rs || !_rm){ alert('เกิดข้อผิดพลาด: modal ไม่พบ'); return; }
+  _ro.classList.add('d-none');
+  _rs.value = 'เปิดไฟร้านเฉยๆ';
+  new bootstrap.Modal(_rm).show();
 }
 document.addEventListener('DOMContentLoaded', function(){
   const sel = document.getElementById('cancel-reason-select');
