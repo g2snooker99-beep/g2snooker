@@ -1313,6 +1313,32 @@ def manage_expenses():
     e=conn.execute("SELECT * FROM expenses ORDER BY id DESC LIMIT 30").fetchall(); conn.close()
     return jsonify([dict(i) for i in e])
 
+
+# ── STARTING CASH LOG ────────────────────────────────────────
+@app.route("/api/starting_cash_log", methods=["GET","POST"])
+def starting_cash_log():
+    conn = get_db_connection()
+    try:
+        if IS_PG:
+            conn.execute("""CREATE TABLE IF NOT EXISTS starting_cash_log (
+                id SERIAL PRIMARY KEY, amount REAL, cashier TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        else:
+            conn.execute("""CREATE TABLE IF NOT EXISTS starting_cash_log (
+                id INTEGER PRIMARY KEY, amount REAL, cashier TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        conn.commit()
+    except: conn.rollback()
+    if request.method == "POST":
+        d = request.json
+        conn.execute("INSERT INTO starting_cash_log (amount,cashier,created_at) VALUES (?,?,?)",
+            (float(d.get('amount',0)), d.get('cashier',''), datetime.now().isoformat()))
+        conn.commit(); conn.close()
+        return jsonify({"status":"success"})
+    rows = conn.execute("SELECT * FROM starting_cash_log ORDER BY id DESC LIMIT 30").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
 # ── EXCHANGE ─────────────────────────────────────────────────
 @app.route("/api/exchange", methods=["GET","POST"])
 def handle_exchange():
