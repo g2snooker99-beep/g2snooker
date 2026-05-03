@@ -1662,6 +1662,7 @@ def line_webhook():
         reply_token = event.get("replyToken","")
         user_id = event.get("source",{}).get("userId","")
         group_id = event.get("source",{}).get("groupId","")
+        if group_id: print(f"[GROUP ID] {group_id}")
         msg_type = event.get("message",{}).get("type","")
         if reply_token in ["00000000000000000000000000000000","ffffffffffffffffffffffffffffffff"]:
             continue
