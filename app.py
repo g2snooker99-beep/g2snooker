@@ -942,11 +942,19 @@ def shop_schedule():
                     return e
         return None
 
-    emp_mgr   = find_emp('โต๋', 'ผจก', 'ผู้จัดการ', 'Manager', 'manager')
-    emp_biw   = find_emp('บิว')
-    emp_fern  = find_emp('เฟริน์', 'ใบเฟริน์')
-    emp_nadia = find_emp('นาเดียร์')
-    emp_noy   = find_emp('เนย')
+    # ดึงชื่อจาก settings ถ้ามี
+    sc_settings = {r['setting_key']: r['setting_value'] for r in
+        conn.execute("SELECT setting_key,setting_value FROM system_settings WHERE setting_key LIKE 'sc_emp_%'").fetchall()}
+    mgr_name   = sc_settings.get('sc_emp_mgr','').strip()
+    rot1_name  = sc_settings.get('sc_emp_rot1','').strip()
+    rot2_name  = sc_settings.get('sc_emp_rot2','').strip()
+    rot3_name  = sc_settings.get('sc_emp_rot3','').strip()
+    fixed_name = sc_settings.get('sc_emp_fixed','').strip()
+    emp_mgr   = find_emp(mgr_name, 'โต๋', 'ผจก', 'ผู้จัดการ') if mgr_name else find_emp('โต๋', 'ผจก')
+    emp_biw   = find_emp(rot1_name, 'บิว') if rot1_name else find_emp('บิว')
+    emp_fern  = find_emp(rot2_name, 'เฟริน์', 'ใบเฟริน์') if rot2_name else find_emp('เฟริน์')
+    emp_nadia = find_emp(rot3_name, 'นาเดียร์') if rot3_name else find_emp('นาเดียร์')
+    emp_noy   = find_emp(fixed_name, 'เนย') if fixed_name else find_emp('เนย')
 
     errors = []
     for label, obj in [('กะ A',sh_a),('กะ B',sh_b),('กะ C',sh_c),('กะ D',sh_d),('กะ E',sh_e)]:

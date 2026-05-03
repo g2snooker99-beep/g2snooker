@@ -2079,6 +2079,11 @@ async function loadSettings(){
   if(document.getElementById('set-tg-cancel-group')) document.getElementById('set-tg-cancel-group').value=s.telegram_cancel_group_id||'';
   // โหลดข้อมูลร้านจาก DB ทุกครั้ง
   if(document.getElementById('set-shop-name')) document.getElementById('set-shop-name').value=s.shop_name||'G2 SNOOKER';
+  if(document.getElementById('sc-emp-mgr')) document.getElementById('sc-emp-mgr').value=s.sc_emp_mgr||'โต๋';
+  if(document.getElementById('sc-emp-rot1')) document.getElementById('sc-emp-rot1').value=s.sc_emp_rot1||'บิว';
+  if(document.getElementById('sc-emp-rot2')) document.getElementById('sc-emp-rot2').value=s.sc_emp_rot2||'ใบเฟิร์น';
+  if(document.getElementById('sc-emp-rot3')) document.getElementById('sc-emp-rot3').value=s.sc_emp_rot3||'นาเดียร์';
+  if(document.getElementById('sc-emp-fixed')) document.getElementById('sc-emp-fixed').value=s.sc_emp_fixed||'เนย';
   if(document.getElementById('set-shop-subtitle')) document.getElementById('set-shop-subtitle').value=s.shop_subtitle||'ระบบ POS Enterprise';
   if(document.getElementById('set-shop-qr')) document.getElementById('set-shop-qr').value=s.shop_qr_url||'';
   localStorage.setItem('shop_name',s.shop_name||'G2 SNOOKER');
@@ -2342,6 +2347,18 @@ async function testTelegram(){
   else alert('❌ '+(d.msg||'ตรวจสอบ Token และ Chat ID'));
 }
 
+
+async function saveScEmpSettings(){
+  const data = {
+    sc_emp_mgr:   document.getElementById('sc-emp-mgr').value.trim(),
+    sc_emp_rot1:  document.getElementById('sc-emp-rot1').value.trim(),
+    sc_emp_rot2:  document.getElementById('sc-emp-rot2').value.trim(),
+    sc_emp_rot3:  document.getElementById('sc-emp-rot3').value.trim(),
+    sc_emp_fixed: document.getElementById('sc-emp-fixed').value.trim(),
+  };
+  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  alert('✅ บันทึกชื่อพนักงานสำเร็จ');
+}
 async function saveShopInfo(){
   const name=document.getElementById('set-shop-name').value.trim()||'G2 SNOOKER';
   const sub=document.getElementById('set-shop-subtitle').value.trim()||'ระบบ POS Enterprise';
