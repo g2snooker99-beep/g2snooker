@@ -1697,7 +1697,7 @@ def line_webhook():
             try:
                 conv = conn.execute("SELECT state,data FROM line_conv_state WHERE user_id=?", (user_id,)).fetchone()
             except: conv = None
-            skip_kw = ["ลางาน","ลงทะเบียน","เลิกงาน","ตารางงาน","คำสั่ง","ขอไอดีกลุ่ม","เช็คอิน","อนุมัติ","ยกเลิก"]
+            skip_kw = ["ลางาน","ลงทะเบียน","เลิกงาน","ตารางงาน","คำสั่ง","ขอไอดีกลุ่ม","เช็คอิน","อนุมัติ","ยกเลิก","พนักงานวันนี้"]
             if conv and conv["state"] and not any(text==k or text.startswith(k+" ") for k in skip_kw):
                 import json as _js
                 state = conv["state"]
@@ -1770,6 +1770,26 @@ def line_webhook():
                     continue
             if text == "ขอไอดีกลุ่ม":
                 reply_msg(reply_token, line_token, f"✅ Group ID:\n{group_id}" if group_id else "❌ ใช้ได้เฉพาะในกลุ่มครับ")
+                continue
+            if text == "พนักงานวันนี้":
+                rows = conn.execute("""
+                    SELECT w.emp_name, s.shift_name, s.start_time, s.end_time
+                    FROM work_schedule w
+                    JOIN work_shifts s ON w.shift_id = s.id
+                    WHERE w.work_date = ?
+                    ORDER BY s.start_time
+                """, (today_str,)).fetchall()
+                if rows:
+                    msg_lines = [f"👥 พนักงานวันนี้ ({today_str})
+{'─'*20}"]
+                    for r in rows:
+                        msg_lines.append(f"👤 {r['emp_name']}
+   📋 {r['shift_name']} ({r['start_time']} - {r['end_time']})")
+                    reply_msg(reply_token, line_token, "
+
+".join(msg_lines))
+                else:
+                    reply_msg(reply_token, line_token, f"❌ ไม่มีตารางงานวันนี้ครับ ({today_str})")
                 continue
             if text in ["คำสั่ง","ช่วยด้วย","help"]:
                 reply_msg(reply_token, line_token,
@@ -1945,7 +1965,7 @@ def line_webhook():
                 else:
                     reply_msg(reply_token, line_token, f"❌ ไม่พบชื่อ '{emp_name}' ในระบบครับ")
                 continue
-            known = ["ลงทะเบียน","ตารางงาน","เลิกงาน","ลางาน","คำสั่ง","ช่วยด้วย","help","ขอไอดีกลุ่ม","เช็คอิน","อนุมัติ"]
+            known = ["ลงทะเบียน","ตารางงาน","เลิกงาน","ลางาน","คำสั่ง","ช่วยด้วย","help","ขอไอดีกลุ่ม","เช็คอิน","อนุมัติ","พนักงานวันนี้"]
             if not any(text==k or text.startswith(k+" ") for k in known):
                 reply_msg(reply_token, line_token, "⚠️ ไม่รู้จักคำสั่งนี้ครับ\nพิมพ์ 'คำสั่ง' เพื่อดูรายการ")
             continue
@@ -2018,7 +2038,8 @@ def reply_msg(reply_token, token, text, show_menu=True):
                 {"type":"action","action":{"type":"message","label":"เลิกงาน","text":"เลิกงาน"}},
                 {"type":"action","action":{"type":"message","label":"ตารางงาน","text":"ตารางงาน"}},
                 {"type":"action","action":{"type":"message","label":"ลางาน","text":"ลางาน"}},
-                {"type":"action","action":{"type":"message","label":"คำสั่ง","text":"คำสั่ง"}}
+                {"type":"action","action":{"type":"message","label":"คำสั่ง","text":"คำสั่ง"}},
+                {"type":"action","action":{"type":"message","label":"พนักงานวันนี้","text":"พนักงานวันนี้"}}
             ]
         }
     payload = json.dumps({"replyToken": reply_token, "messages": [msg]}, ensure_ascii=False).encode("utf-8")
