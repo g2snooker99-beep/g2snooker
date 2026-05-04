@@ -1073,9 +1073,9 @@ def shop_schedule():
         if not nadia_off:
             insert(emp_nadia['name'], date_str, pick_sh(nadia_sh)['id'])
 
-        # ── เจมส์ กะ E ───────────────────────────────────────
-        # หยุดพฤหัส ศุกร์บิวทำ E แทนแล้ว
-        if not is_thu and not is_fri:
+        # ── เจมส์ กะ E (หยุดพฤหัสเท่านั้น) ──────────────────
+        # ศุกร์บิวทำ E แทน แต่เจมส์ก็ทำ E วันศุกร์ได้ด้วย
+        if not is_thu:
             insert(emp_noy['name'], date_str, sh_e['id'])
     conn.commit(); conn.close()
     return jsonify({
