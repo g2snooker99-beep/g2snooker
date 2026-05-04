@@ -1021,44 +1021,50 @@ def shop_schedule():
         dt_obj   = start_dt + timedelta(days=i)
         date_str = dt_obj.strftime('%Y-%m-%d')
         dow      = dt_obj.weekday()
-        is_mon   = (dow == 0)
+        is_mon = (dow == 0)
+        is_thu = (dow == 3)
+        is_fri = (dow == 4)
 
-        # คำนวณ cycle วันนี้
         cycle = ((dt_obj - REF).days) % 3
         biw_sh, fern_sh, nadia_sh = ROTATION[cycle]
 
-        # หาว่าใครอยู่กะ C วันนี้ → คนนั้นคุมแทนกะ A วันจันทร์
-        if   biw_sh['id']   == sh_c['id']: c_person = emp_biw
-        elif fern_sh['id']  == sh_c['id']: c_person = emp_fern
-        else:                               c_person = emp_nadia
+        # เฟริน์/นาเดียร์ สลับหยุดเสาร์/อาทิตย์
+        week_num = ((dt_obj - REF).days) // 7
+        if week_num % 2 == 0:
+            fern_off_day, nadia_off_day = 5, 6
+        else:
+            fern_off_day, nadia_off_day = 6, 5
 
-        # ── ผจก. กะ A (หยุดจันทร์) ──────────────────────────
+        biw_off   = dow in [3, 4]
+        fern_off  = (dow == fern_off_day)
+        nadia_off = (dow == nadia_off_day)
+        noy_off   = (dow == 3)
+
+        # ── โต๋ กะ A (หยุดจันทร์) ───────────────────────────
         if not is_mon:
             insert(emp_mgr['name'], date_str, sh_a['id'])
 
-        # ── วันจันทร์: c_person คุมแทนกะ A ─────────────────
+        # ── วันจันทร์: บิวเข้ากะ A แทนโต๋ ──────────────────
         if is_mon:
-            insert(c_person['name'], date_str, sh_a['id'])
+            insert(emp_biw['name'], date_str, sh_a['id'])
 
         # ── บิว ──────────────────────────────────────────────
-        if OFF[emp_biw['name']] != dow:
-            if not (is_mon and c_person['name'] == emp_biw['name']):
-                insert(emp_biw['name'], date_str, biw_sh['id'])
+        if is_fri:
+            insert(emp_biw['name'], date_str, sh_e['id'])
+        elif not is_mon and not biw_off:
+            insert(emp_biw['name'], date_str, biw_sh['id'])
 
         # ── เฟริน์ ────────────────────────────────────────────
-        if OFF[emp_fern['name']] != dow:
-            if not (is_mon and c_person['name'] == emp_fern['name']):
-                insert(emp_fern['name'], date_str, fern_sh['id'])
+        if not fern_off:
+            insert(emp_fern['name'], date_str, fern_sh['id'])
 
         # ── นาเดียร์ ──────────────────────────────────────────
-        if OFF[emp_nadia['name']] != dow:
-            if not (is_mon and c_person['name'] == emp_nadia['name']):
-                insert(emp_nadia['name'], date_str, nadia_sh['id'])
+        if not nadia_off:
+            insert(emp_nadia['name'], date_str, nadia_sh['id'])
 
-        # ── เนย กะ E (หยุดพฤหัส) ─────────────────────────────
-        if OFF[emp_noy['name']] != dow:
+        # ── เจมส์ กะ E (หยุดพฤหัส ศุกร์บิวทำแทน) ──────────
+        if not noy_off and not is_fri:
             insert(emp_noy['name'], date_str, sh_e['id'])
-
     conn.commit(); conn.close()
     return jsonify({
         "status":   "success",
