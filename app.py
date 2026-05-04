@@ -1780,11 +1780,10 @@ def line_webhook():
                     ORDER BY s.start_time
                 """, (today_str,)).fetchall()
                 if rows:
-                    msg_lines = [f"👥 พนักงานวันนี้ ({today_str})
-{'─'*20}"]
+                    sep = '─'*20
+                    msg_lines = [f"👥 พนักงานวันนี้ ({today_str})\n{sep}"]
                     for r in rows:
-                        msg_lines.append(f"👤 {r['emp_name']}
-   📋 {r['shift_name']} ({r['start_time']} - {r['end_time']})")
+                        msg_lines.append(f"👤 {r['emp_name']}\n   📋 {r['shift_name']} ({r['start_time']} - {r['end_time']})")
                     reply_msg(reply_token, line_token, "
 
 ".join(msg_lines))
