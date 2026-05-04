@@ -1035,10 +1035,18 @@ def shop_schedule():
         else:
             fern_off_day, nadia_off_day = 6, 5
 
-        biw_off   = dow in [3, 4]
         fern_off  = (dow == fern_off_day)
         nadia_off = (dow == nadia_off_day)
-        noy_off   = (dow == 3)
+
+        # วันที่มีคนหยุด 1 คน → ตัดกะ C ออก ใช้ B แทน
+        # วันเสาร์/อาทิตย์ มีคนหยุด 1 คน (เฟริน์หรือนาเดียร์)
+        is_someone_off = fern_off or nadia_off
+
+        def pick_sh(sh):
+            # ถ้าวันนี้มีคนหยุด และกะที่ได้คือ C → เปลี่ยนเป็น B
+            if is_someone_off and sh['id'] == sh_c['id']:
+                return sh_b
+            return sh
 
         # ── โต๋ กะ A (หยุดจันทร์) ───────────────────────────
         if not is_mon:
@@ -1049,23 +1057,25 @@ def shop_schedule():
             insert(emp_biw['name'], date_str, sh_a['id'])
 
         # ── บิว ──────────────────────────────────────────────
-        if is_fri:
+        if is_thu or is_fri:
+            # พฤหัสและศุกร์บิวทำกะ E (02:00-10:00)
             insert(emp_biw['name'], date_str, sh_e['id'])
-        elif not is_mon and not biw_off:
-            insert(emp_biw['name'], date_str, biw_sh['id'])
+        elif not is_mon:
+            # วันอื่นทำกะหมุนเวียน
+            insert(emp_biw['name'], date_str, pick_sh(biw_sh)['id'])
 
         # ── เฟริน์ ────────────────────────────────────────────
         if not fern_off:
-            insert(emp_fern['name'], date_str, fern_sh['id'])
+            insert(emp_fern['name'], date_str, pick_sh(fern_sh)['id'])
 
         # ── นาเดียร์ ──────────────────────────────────────────
         if not nadia_off:
-            insert(emp_nadia['name'], date_str, nadia_sh['id'])
+            insert(emp_nadia['name'], date_str, pick_sh(nadia_sh)['id'])
 
-        # ── เจมส์ กะ E (หยุดพฤหัส ศุกร์บิวทำแทน) ──────────
-        if not noy_off and not is_fri:
+        # ── เจมส์ กะ E ───────────────────────────────────────
+        # หยุดพฤหัส ศุกร์บิวทำ E แทนแล้ว
+        if not is_thu and not is_fri:
             insert(emp_noy['name'], date_str, sh_e['id'])
-    conn.commit(); conn.close()
     return jsonify({
         "status":   "success",
         "inserted": inserted,
