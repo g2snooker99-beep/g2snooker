@@ -1007,7 +1007,7 @@ def shop_schedule():
         try:
             if IS_PG:
                 conn.execute(
-                    "INSERT INTO work_schedule (emp_name,work_date,shift_id,note) VALUES (?,?,?,'shop') ON CONFLICT DO NOTHING",
+                    "INSERT INTO work_schedule (emp_name,work_date,shift_id,note) VALUES (%s,%s,%s,'shop') ON CONFLICT DO NOTHING",
                     (emp_name, date_str, shift_id))
             else:
                 conn.execute(
