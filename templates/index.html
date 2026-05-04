@@ -3120,9 +3120,7 @@ function renderWeekGrid(week, nDays=7){
       if(isHol){
         html+=`<div style="font-size:0.75rem;color:#ef4444;padding:8px;opacity:0.8"><i class="fa-solid fa-bed mb-1"></i><br>หยุดพิเศษ</div>`;
       } else {
-        if(activeShifts.length>0){
-          activeShifts.forEach(sh=>{
-            // กล่องกะงาน ใช้สีของพนักงาน (empColor) เป็นหลัก!
+        activeShifts.forEach(sh=>{
             html+=`<div onclick="toggleSchedule('${emp.name}','${ds}',${sh.id})"
               style="margin:3px auto;border-radius:6px;padding:6px;cursor:pointer;
               background:${empColor}1A; border:1px solid ${empColor}40; border-left:4px solid ${empColor};
@@ -3133,10 +3131,10 @@ function renderWeekGrid(week, nDays=7){
               <div style="font-size:0.7rem;color:#cbd5e1"><i class="fa-regular fa-clock me-1"></i>${sh.start_time}-${sh.end_time}</div>
             </div>`;
           });
-        } else {
-          html+=`<div style="position:relative; height:100%; display:flex; align-items:center; justify-content:center; padding:8px 0;">
+        {
+          html+=`<div style="position:relative; height:100%; display:flex; align-items:center; justify-content:center; padding:4px 0;">
             <div onclick="openAddShiftMenu('${emp.name}','${ds}',event)"
-              style="border-radius:6px;padding:4px 12px;cursor:pointer;
+              style="border-radius:6px;padding:2px 10px;cursor:pointer;
               color:#475569;font-size:0.8rem;border:1px dashed #334155;
               background:rgba(255,255,255,0.01)"
               onmouseenter="this.style.borderColor='#64748b'; this.style.color='#64748b'"
