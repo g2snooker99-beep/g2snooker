@@ -943,8 +943,11 @@ def shop_schedule():
         return None
 
     # ดึงชื่อจาก settings ถ้ามี
-    sc_settings = {r['setting_key']: r['setting_value'] for r in
-        conn.execute("SELECT setting_key,setting_value FROM system_settings WHERE setting_key LIKE 'sc_emp_%'").fetchall()}
+    try:
+        sc_settings = {r['setting_key']: r['setting_value'] for r in
+            conn.execute("SELECT setting_key,setting_value FROM system_settings WHERE setting_key LIKE 'sc_emp_%'").fetchall()}
+    except:
+        sc_settings = {}
     mgr_name   = sc_settings.get('sc_emp_mgr','').strip()
     rot1_name  = sc_settings.get('sc_emp_rot1','').strip()
     rot2_name  = sc_settings.get('sc_emp_rot2','').strip()
