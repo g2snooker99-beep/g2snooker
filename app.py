@@ -1785,7 +1785,6 @@ def line_webhook():
                     for r in rows:
                         msg_lines.append(f"👤 {r['emp_name']}\n   📋 {r['shift_name']} ({r['start_time']} - {r['end_time']})")
                     reply_msg(reply_token, line_token, "\n".join(msg_lines))
-".join(msg_lines))
                 else:
                     reply_msg(reply_token, line_token, f"❌ ไม่มีตารางงานวันนี้ครับ ({today_str})")
                 continue
