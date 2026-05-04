@@ -1057,9 +1057,11 @@ def shop_schedule():
         if is_mon:
             insert(emp_biw['name'], date_str, sh_a['id'])
 
-        # ── บิว ──────────────────────────────────────────────
-        if is_thu or is_fri:
-            # พฤหัสและศุกร์บิวทำกะ E (02:00-10:00)
+        # ── บิว (หยุดศุกร์ ทำ E วันพฤหัส) ──────────────────
+        if is_fri:
+            pass  # บิวหยุดวันศุกร์
+        elif is_thu:
+            # พฤหัสบิวทำกะ E (02:00-10:00)
             insert(emp_biw['name'], date_str, sh_e['id'])
         elif not is_mon:
             # วันอื่นทำกะหมุนเวียน
