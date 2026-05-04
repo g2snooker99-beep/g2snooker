@@ -2011,7 +2011,9 @@ def line_webhook():
             is_early = early_mins > 15
             is_late = now > shift_dt + timedelta(minutes=15)
             if is_early: status_msg = f"🌟 มาก่อนเวลา {early_mins} นาที"
-            elif is_late: status_msg = "⏰ มาสาย"
+            elif is_late:
+                late_mins = int((now - (shift_dt + timedelta(minutes=15))).total_seconds()/60) + 15
+                status_msg = f"⏰ มาสาย {late_mins} นาที"
             else: status_msg = "✅ ตรงเวลา"
             try:
                 conn.execute("INSERT INTO payroll_daily (emp_name,work_date,status,is_late,ot_hours,note) VALUES (?,?,'present',?,0,?)",
