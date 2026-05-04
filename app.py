@@ -2041,6 +2041,7 @@ def reply_msg(reply_token, token, text, show_menu=True):
                 {"type":"action","action":{"type":"message","label":"ตารางงาน","text":"ตารางงาน"}},
                 {"type":"action","action":{"type":"message","label":"ลางาน","text":"ลางาน"}},
                 {"type":"action","action":{"type":"message","label":"คำสั่ง","text":"คำสั่ง"}},
+                {"type":"action","action":{"type":"message","label":"พนักงานวันนี้","text":"พนักงานวันนี้"}},
                 {"type":"action","action":{"type":"message","label":"พนักงานวันนี้","text":"พนักงานวันนี้"}}
             ]
         }
