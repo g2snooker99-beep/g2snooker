@@ -656,6 +656,32 @@ h6.text-muted{color:#94a3b8 !important}
         </div>
       </div>
       <hr class="border-secondary mb-4">
+      <h6 class="text-success mb-3"><i class="fa-solid fa-user-clock me-2"></i>ตั้งค่าพนักงานสำหรับตารางกะอัตโนมัติ</h6>
+      <p class="text-muted small">ระบุชื่อพนักงานที่ตรงกับในระบบ ใช้สำหรับจัดตารางกะร้าน G2</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-4">
+          <label class="text-muted small">👔 ผู้จัดการ (กะ A / หยุดจันทร์)</label>
+          <input type="text" id="sc-emp-mgr" class="form-control custom-input" placeholder="โต๋">
+        </div>
+        <div class="col-md-4">
+          <label class="text-muted small">🔄 พนักงานหมุนเวียน 1 (D→C→B)</label>
+          <input type="text" id="sc-emp-rot1" class="form-control custom-input" placeholder="บิว">
+        </div>
+        <div class="col-md-4">
+          <label class="text-muted small">🔄 พนักงานหมุนเวียน 2 (D→C→B)</label>
+          <input type="text" id="sc-emp-rot2" class="form-control custom-input" placeholder="เฟริน์">
+        </div>
+        <div class="col-md-4">
+          <label class="text-muted small">🔄 พนักงานหมุนเวียน 3 (D→C→B)</label>
+          <input type="text" id="sc-emp-rot3" class="form-control custom-input" placeholder="นาเดียร์">
+        </div>
+        <div class="col-md-4">
+          <label class="text-muted small">📌 พนักงานกะ E (หยุดพฤหัส)</label>
+          <input type="text" id="sc-emp-fixed" class="form-control custom-input" placeholder="เจมส์">
+        </div>
+      </div>
+      <button class="btn btn-success fw-bold px-4 mb-4" onclick="saveScEmpSettings()"><i class="fa-solid fa-floppy-disk me-2"></i>บันทึกชื่อพนักงาน</button>
+      <hr class="border-secondary mb-4">
       <h6 class="text-info mb-3"><i class="fa-solid fa-clock"></i> เวลาตัดยอดกะ / บิลประจำวัน</h6>
       <p class="text-muted small">บิลที่ออกก่อนเวลานี้จะนับเป็นยอดของวันก่อนหน้า</p>
       <div class="input-group w-50">
