@@ -1016,6 +1016,7 @@ def shop_schedule():
             inserted += 1
         except Exception as e:
             err_log.append(str(e))
+            print(f'[INSERT ERR] {e}')
 
     for i in range(days):
         dt_obj   = start_dt + timedelta(days=i)
