@@ -936,6 +936,7 @@ def shop_schedule():
     all_emps = conn.execute("SELECT * FROM employees").fetchall()
 
     import unicodedata as _ud
+    print("DEBUG all_emps:", [(e['name'], e['name'].encode('unicode_escape')) for e in all_emps])
     def find_emp(*keywords):
         for e in all_emps:
             name_n = _ud.normalize('NFC', e['name'])
