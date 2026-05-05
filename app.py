@@ -1082,9 +1082,6 @@ def shop_schedule():
                 insert(emp_nadia['name'], date_str, biw_sh['id'])  # ย้ายไปกะของบิว
             else:
                 insert(emp_nadia['name'], date_str, sh['id'])
-            sh = pick_sh(nadia_sh)
-            if not (is_mon and sh['id'] == sh_b['id']) and not ((is_thu or is_fri) and sh['id'] == sh_c['id']):
-                insert(emp_nadia['name'], date_str, sh['id'])
 
         # ── เจมส์ กะ E (หยุดพฤหัสเท่านั้น) ──────────────────
         # ศุกร์บิวทำ E แทน แต่เจมส์ก็ทำ E วันศุกร์ได้ด้วย
