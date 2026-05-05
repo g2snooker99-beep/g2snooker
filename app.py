@@ -1047,8 +1047,10 @@ def shop_schedule():
 
         def pick_sh(sh):
             # ถ้าวันนี้มีคนหยุด และกะที่ได้คือ C → เปลี่ยนเป็น B
+            # แต่เฉพาะเมื่อบิวไม่ได้ทำ B อยู่แล้ว (ป้องกันกะซ้ำ)
             if is_someone_off and sh['id'] == sh_c['id']:
-                return sh_b
+                if biw_sh['id'] != sh_b['id']:
+                    return sh_b
             return sh
 
         # ── โต๋ กะ A (หยุดจันทร์) ───────────────────────────
@@ -1067,7 +1069,7 @@ def shop_schedule():
             insert(emp_biw['name'], date_str, sh_e['id'])
         elif not is_mon:
             # วันอื่นทำกะหมุนเวียน
-            insert(emp_biw['name'], date_str, pick_sh(biw_sh)['id'])
+            insert(emp_biw['name'], date_str, biw_sh['id'])  # ไม่ pick_sh ป้องกัน duplicate
         # ── เฟิร์น ────────────────────────────────────────────
         if not fern_off:
             sh = pick_sh(fern_sh)
