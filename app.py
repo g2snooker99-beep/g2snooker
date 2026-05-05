@@ -935,10 +935,12 @@ def shop_schedule():
 
     all_emps = conn.execute("SELECT * FROM employees").fetchall()
 
+    import unicodedata as _ud
     def find_emp(*keywords):
         for e in all_emps:
+            name_n = _ud.normalize('NFC', e['name'])
             for kw in keywords:
-                if kw in e['name']:
+                if kw and _ud.normalize('NFC', kw) in name_n:
                     return e
         return None
 
