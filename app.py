@@ -936,8 +936,6 @@ def shop_schedule():
     all_emps = conn.execute("SELECT * FROM employees").fetchall()
 
     import unicodedata as _ud
-    print("DEBUG NAMES:", [e['name'] for e in all_emps])
-    print("DEBUG ROT2:", repr(rot2_name), "FIXED:", repr(fixed_name))
     def find_emp(*keywords):
         for e in all_emps:
             name_n = _ud.normalize('NFC', e['name'])
@@ -959,7 +957,7 @@ def shop_schedule():
     fixed_name = sc_settings.get('sc_emp_fixed','').strip()
     emp_mgr   = find_emp(mgr_name, 'โต๋', 'ผจก', 'ผู้จัดการ') if mgr_name else find_emp('โต๋', 'ผจก')
     emp_biw   = find_emp(rot1_name, 'บิว') if rot1_name else find_emp('บิว')
-    emp_fern  = find_emp(rot2_name, 'เฟริน์', 'ใบเฟริน์') if rot2_name else find_emp('เฟริน์')
+    emp_fern  = find_emp(rot2_name, 'เฟิร์น', 'เฟริน์') if rot2_name else find_emp('เฟิร์น', 'เฟริน์')
     emp_nadia = find_emp(rot3_name, 'นาเดียร์') if rot3_name else find_emp('นาเดียร์')
     emp_noy   = find_emp(fixed_name) if fixed_name else find_emp('เจมส์')
 
