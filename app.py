@@ -962,7 +962,7 @@ def shop_schedule():
     errors = []
     for label, obj in [('กะ A',sh_a),('กะ B',sh_b),('กะ C',sh_c),('กะ D',sh_d),('กะ E',sh_e)]:
         if not obj: errors.append(f'ไม่พบ {label} ในระบบ — กรุณาสร้างกะก่อน')
-    for label, obj in [('โต๋/ผจก.',emp_mgr),('บิว',emp_biw),('เฟริน์',emp_fern),('นาเดียร์',emp_nadia),('เนย',emp_noy)]:
+    for label, obj in [('โต๋/ผจก.',emp_mgr),('บิว',emp_biw),(rot2_name or 'เฟิร์น',emp_fern),('นาเดียร์',emp_nadia),(fixed_name or 'ฟลุ๊ค',emp_noy)]:
         if not obj: errors.append(f'ไม่พบพนักงาน "{label}" — ชื่อต้องตรงกัน')
     if errors:
         conn.close()
