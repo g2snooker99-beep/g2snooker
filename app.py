@@ -1071,19 +1071,19 @@ def shop_schedule():
         # ── เฟิร์น ────────────────────────────────────────────
         if not fern_off:
             sh = pick_sh(fern_sh)
-            if (is_mon and sh['id'] == sh_b['id']) or (is_thu and sh['id'] == sh_c['id']):
+            if (is_mon and sh['id'] == sh_b['id']) or ((is_thu or is_fri) and sh['id'] == sh_c['id']):
                 insert(emp_fern['name'], date_str, biw_sh['id'])  # ย้ายไปกะของบิว
             else:
                 insert(emp_fern['name'], date_str, sh['id'])
         # ── นาเดียร์ ──────────────────────────────────────────
         if not nadia_off:
             sh = pick_sh(nadia_sh)
-            if (is_mon and sh['id'] == sh_b['id']) or (is_thu and sh['id'] == sh_c['id']):
+            if (is_mon and sh['id'] == sh_b['id']) or ((is_thu or is_fri) and sh['id'] == sh_c['id']):
                 insert(emp_nadia['name'], date_str, biw_sh['id'])  # ย้ายไปกะของบิว
             else:
                 insert(emp_nadia['name'], date_str, sh['id'])
             sh = pick_sh(nadia_sh)
-            if not (is_mon and sh['id'] == sh_b['id']) and not (is_thu and sh['id'] == sh_c['id']):
+            if not (is_mon and sh['id'] == sh_b['id']) and not ((is_thu or is_fri) and sh['id'] == sh_c['id']):
                 insert(emp_nadia['name'], date_str, sh['id'])
 
         # ── เจมส์ กะ E (หยุดพฤหัสเท่านั้น) ──────────────────
