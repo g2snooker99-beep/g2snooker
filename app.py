@@ -1068,13 +1068,17 @@ def shop_schedule():
         elif not is_mon:
             # วันอื่นทำกะหมุนเวียน
             insert(emp_biw['name'], date_str, pick_sh(biw_sh)['id'])
-
-        # ── เฟริน์ ────────────────────────────────────────────
+        # ── เฟิร์น ────────────────────────────────────────────
         if not fern_off:
-            insert(emp_fern['name'], date_str, pick_sh(fern_sh)['id'])
+            sh = pick_sh(fern_sh)
+            if not (is_mon and sh['id'] == sh_b['id']) and not (is_thu and sh['id'] == sh_c['id']):
+                insert(emp_fern['name'], date_str, sh['id'])
 
         # ── นาเดียร์ ──────────────────────────────────────────
         if not nadia_off:
+            sh = pick_sh(nadia_sh)
+            if not (is_mon and sh['id'] == sh_b['id']) and not (is_thu and sh['id'] == sh_c['id']):
+                insert(emp_nadia['name'], date_str, sh['id'])
             insert(emp_nadia['name'], date_str, pick_sh(nadia_sh)['id'])
 
         # ── เจมส์ กะ E (หยุดพฤหัสเท่านั้น) ──────────────────
