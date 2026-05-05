@@ -959,7 +959,7 @@ def shop_schedule():
     emp_biw   = find_emp(rot1_name, 'บิว') if rot1_name else find_emp('บิว')
     emp_fern  = find_emp(rot2_name, 'เฟิร์น', 'เฟริน์') if rot2_name else find_emp('เฟิร์น', 'เฟริน์')
     emp_nadia = find_emp(rot3_name, 'นาเดียร์') if rot3_name else find_emp('นาเดียร์')
-    emp_noy   = find_emp(fixed_name) if fixed_name else find_emp('เจมส์')
+    emp_noy   = find_emp(fixed_name, 'ฟลุ', 'ลุ๊ค') if fixed_name else find_emp('ฟลุ', 'ลุ๊ค')
 
     errors = []
     for label, obj in [('กะ A',sh_a),('กะ B',sh_b),('กะ C',sh_c),('กะ D',sh_d),('กะ E',sh_e)]:
