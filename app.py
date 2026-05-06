@@ -1836,8 +1836,15 @@ def line_webhook():
                     if not sc and not is_owner:
                         reply_msg(reply_token, line_token, f"❌ {emp['name']} ไม่พบตารางกะวันนี้ครับ")
                         continue
-                    # คำนวณจาก start_time ของกะ + 8 ชั่วโมง
+                    # ดึงเวลาเช็คอินจริงจาก payroll_daily ก่อน
+                    existing_pre = conn.execute(
+                        "SELECT note FROM payroll_daily WHERE emp_name=? AND work_date=?",
+                        (emp["name"],checkin_date)).fetchone()
                     shift_start_str = sc["start_time"] if sc else time_str
+                    if existing_pre and existing_pre["note"]:
+                        import re as _re
+                        m = _re.search(r'เช็คอิน (\d{2}:\d{2})', existing_pre["note"])
+                        if m: shift_start_str = m.group(1)
                     cin_dt = datetime.strptime(f"{checkin_date} {shift_start_str}", "%Y-%m-%d %H:%M")
                     if cin_dt > now: cin_dt -= timedelta(days=1)
                     worked_mins = int((now-cin_dt).total_seconds()/60)
