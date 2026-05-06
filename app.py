@@ -1840,6 +1840,10 @@ def line_webhook():
                     existing_pre = conn.execute(
                         "SELECT note FROM payroll_daily WHERE emp_name=? AND work_date=?",
                         (emp["name"],checkin_date)).fetchone()
+                    if not existing_pre:
+                        existing_pre = conn.execute(
+                            "SELECT note FROM payroll_daily WHERE emp_name=? AND work_date=?",
+                            (emp["name"],yesterday_str)).fetchone()
                     shift_start_str = sc["start_time"] if sc else time_str
                     if existing_pre and existing_pre["note"]:
                         import re as _re
