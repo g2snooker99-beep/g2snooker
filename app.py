@@ -2002,10 +2002,27 @@ def line_webhook():
                 WHERE w.emp_name=? AND w.work_date=?""", (emp_name,today_str)).fetchone()
             checkin_date = today_str
             if not sc:
+                tomorrow_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+                sc_tmr = conn.execute("""SELECT s.start_time FROM work_schedule w
+                    JOIN work_shifts s ON w.shift_id=s.id
+                    WHERE w.emp_name=? AND w.work_date=?""", (emp_name,tomorrow_str)).fetchone()
+                if sc_tmr:
+                    sh_h = int(sc_tmr['start_time'].split(':')[0])
+                    if sh_h <= 5 and now.hour <= 5:
+                        sc = sc_tmr
+                        checkin_date = tomorrow_str
+            if not sc:
                 sc = conn.execute("""SELECT s.start_time FROM work_schedule w
                     JOIN work_shifts s ON w.shift_id=s.id
                     WHERE w.emp_name=? AND w.work_date=?""", (emp_name,yesterday_str)).fetchone()
-                if sc: checkin_date = yesterday_str
+                if sc:
+                    sh_h = int(sc['start_time'].split(':')[0])
+                    shift_ref = datetime.strptime(f"{yesterday_str} {sc['start_time']}", "%Y-%m-%d %H:%M")
+                    hours_since = (now - shift_ref).total_seconds() / 3600
+                    if hours_since <= 12:
+                        checkin_date = yesterday_str
+                    else:
+                        sc = None
             if not sc and not is_owner:
                 reply_msg(reply_token, line_token, f"❌ {emp_name} วันนี้ไม่มีตารางงานครับ")
                 continue
