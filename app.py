@@ -1851,6 +1851,7 @@ def line_webhook():
                         if m: shift_start_str = m.group(1)
                     cin_dt = datetime.strptime(f"{checkin_date} {shift_start_str}", "%Y-%m-%d %H:%M")
                     if cin_dt > now: cin_dt -= timedelta(days=1)
+                    if (now - cin_dt).total_seconds() > 86400: cin_dt += timedelta(days=1)
                     worked_mins = int((now-cin_dt).total_seconds()/60)
                     wh,wm = worked_mins//60, worked_mins%60
                     if worked_mins < 480: status = "⚠️ ออกก่อนเวลา"
