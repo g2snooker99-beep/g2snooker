@@ -1704,6 +1704,36 @@ def cron_daily_report():
             msg += "━━━━━━━━━━━━━━\n"
         msg += f"💰 รวมทั้งวัน: {gt:,.0f} ฿\n🧾 รวม {gb} บิล"
 
+        # ── ยอดค้าง: โต๊ะที่ยังเล่นอยู่ (ยังไม่เช็คบิล) ──
+        try:
+            import json as _pj
+            rates_p = conn.execute("SELECT * FROM rate_settings").fetchall()
+            sess_rows = conn.execute(
+                "SELECT a.table_id, a.start_time, a.total_food, t.name AS tname, t.type AS ttype "
+                "FROM active_sessions_db a LEFT JOIN tables_config t ON t.id = a.table_id"
+            ).fetchall()
+            pend_count = 0
+            pend_fee = 0.0
+            pend_food = 0.0
+            for s in sess_rows:
+                pend_count += 1
+                pend_food += float(s["total_food"] or 0)
+                if s["ttype"] == "snooker" and s["start_time"]:
+                    try:
+                        stt = datetime.fromisoformat(s["start_time"])
+                        pend_fee += float(calc_fee(stt, datetime.now(), rates_p) or 0)
+                    except Exception as fe:
+                        print(f"[WARN] pending fee table {s['table_id']}: {fe}")
+            if pend_count > 0:
+                msg += f"\n⏳ ยอดค้าง (ยังเล่นอยู่)\n"
+                msg += f"  🎱 {pend_count} โต๊ะ\n"
+                msg += f"  ค่าโต๊ะประมาณ: {pend_fee:,.0f} ฿\n"
+                if pend_food > 0:
+                    msg += f"  ค่าอาหารค้าง: {pend_food:,.0f} ฿\n"
+                msg += f"  (ยังไม่รวมในยอดด้านบน — จะนับเมื่อเช็คบิล)"
+        except Exception as pe:
+            print(f"[WARN] pending section: {pe}")
+
         st = {r["setting_key"]: r["setting_value"] for r in
               conn.execute("SELECT setting_key,setting_value FROM system_settings").fetchall()}
         conn.close()
