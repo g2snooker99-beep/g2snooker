@@ -1661,6 +1661,72 @@ def get_dashboard():
                     "cash_sales":round(cash_sales,2),"transfer_sales":round(transfer_sales,2),
                     "shift_date":sd,"starting_cash":sc,"daily_bills":[dict(b) for b in bills]})
     # ── LINE WEBHOOK (ระบบเช็คอินด้วยรูปภาพ) ──────────────────────────────────
+
+# ── DAILY SALES REPORT (CRON 08:00, 3 SHIFTS) ────────────────
+@app.route("/api/cron/daily-report", methods=["GET", "POST"])
+def cron_daily_report():
+    secret = request.args.get("key", "")
+    if secret != "g2_cron_2026":
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        from datetime import datetime, timedelta
+        y = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        conn = get_db_connection()
+        bills = conn.execute(
+            "SELECT total, time_fee, food_fee, created_at FROM bills WHERE created_at >= %s AND created_at < %s AND status = %s",
+            (y + "T00:00:00", y + "T23:59:59", "ชำระแล้ว")
+        ).fetchall()
+
+        shifts = {"A": [0,0.0,0.0,0.0], "B": [0,0.0,0.0,0.0], "C": [0,0.0,0.0,0.0]}
+        for b in bills:
+            try:
+                hh = int(b["created_at"][11:13])
+            except Exception:
+                hh = 0
+            k = "A" if hh < 8 else ("B" if hh < 16 else "C")
+            shifts[k][0] += 1
+            shifts[k][1] += float(b["total"] or 0)
+            shifts[k][2] += float(b["time_fee"] or 0)
+            shifts[k][3] += float(b["food_fee"] or 0)
+
+        yd = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
+        labels = [("A","🌙 กะดึก 00:00–08:00"),("B","☀️ กะเช้า 08:00–16:00"),("C","🌆 กะเย็น 16:00–00:00")]
+        gt = 0.0; gb = 0
+        msg = f"📊 G2 SNOOKER — สรุปยอดขาย\n📅 {yd}\n━━━━━━━━━━━━━━\n"
+        for k, lab in labels:
+            bc, ts, tt, tf = shifts[k]
+            gt += ts; gb += bc
+            msg += f"{lab}\n"
+            if bc > 0:
+                msg += f"  ยอดขาย: {ts:,.0f} ฿ ({bc} บิล)\n  🎱 {tt:,.0f} ฿  🍔 {tf:,.0f} ฿\n"
+            else:
+                msg += "  — ไม่มียอด —\n"
+            msg += "━━━━━━━━━━━━━━\n"
+        msg += f"💰 รวมทั้งวัน: {gt:,.0f} ฿\n🧾 รวม {gb} บิล"
+
+        st = {r["setting_key"]: r["setting_value"] for r in
+              conn.execute("SELECT setting_key,setting_value FROM system_settings").fetchall()}
+        conn.close()
+        tok = (st.get("line_token") or "").strip()
+        gid = (st.get("line_report_group_id") or "").strip()
+        if tok and gid:
+            import json as _json, urllib.request as _ur
+            try:
+                data = _json.dumps({"to": gid, "messages": [{"type":"text","text":msg}]}).encode()
+                req = _ur.Request("https://api.line.me/v2/bot/message/push", data=data,
+                    headers={"Content-Type":"application/json","Authorization":f"Bearer {tok}"})
+                _ur.urlopen(req, timeout=5)
+            except Exception as le:
+                print(f"[WARN] report push: {le}")
+                return jsonify({"ok": False, "error": str(le), "sent": msg}), 200
+        else:
+            return jsonify({"ok": False, "error": "missing token or group_id"}), 200
+        return jsonify({"ok": True, "sent": msg, "group": gid})
+    except Exception as e:
+        print(f"[ERROR] daily report: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/line/webhook", methods=["POST"])
 def line_webhook():
     import json, urllib.request, re as _re
