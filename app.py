@@ -1803,7 +1803,7 @@ def line_webhook():
             try:
                 conv = conn.execute("SELECT state,data FROM line_conv_state WHERE user_id=?", (user_id,)).fetchone()
             except: conv = None
-            skip_kw = ["ลางาน","ลงทะเบียน","เลิกงาน","ตารางงาน","คำสั่ง","ขอไอดีกลุ่ม","เช็คอิน","อนุมัติ","ยกเลิก","พนักงานวันนี้"]
+            skip_kw = ["ลางาน","ลงทะเบียน","เลิกงาน","ตารางงาน","คำสั่ง","ขอไอดีกลุ่ม","เช็คอิน","อนุมัติ","ยกเลิก","พนักงานวันนี้","ยอดวันนี้"]
             if conv and conv["state"] and not any(text==k or text.startswith(k+" ") for k in skip_kw):
                 import json as _js
                 state = conv["state"]
@@ -1877,6 +1877,34 @@ def line_webhook():
             if text == "ขอไอดีกลุ่ม":
                 reply_msg(reply_token, line_token, f"✅ Group ID:\n{group_id}" if group_id else "❌ ใช้ได้เฉพาะในกลุ่มครับ")
                 continue
+            if text == "ยอดวันนี้":
+                rep_grp = group_id and group_id == settings.get("line_report_group_id","").strip()
+                bills_t = conn.execute(
+                    "SELECT total, time_fee, food_fee, created_at FROM bills WHERE created_at >= ? AND created_at < ? AND status = ?",
+                    (today_str + "T00:00:00", today_str + "T23:59:59", "ชำระแล้ว")
+                ).fetchall()
+                shf = {"A":[0,0.0], "B":[0,0.0], "C":[0,0.0]}
+                for b in bills_t:
+                    try: hh = int(b["created_at"][11:13])
+                    except: hh = 0
+                    kk = "A" if hh < 8 else ("B" if hh < 16 else "C")
+                    shf[kk][0] += 1
+                    shf[kk][1] += float(b["total"] or 0)
+                labs = [("A","🌙 ดึก 00-08"),("B","☀️ เช้า 08-16"),("C","🌆 เย็น 16-00")]
+                gt2 = sum(v[1] for v in shf.values()); gb2 = sum(v[0] for v in shf.values())
+                ml = [f"💰 ยอดวันนี้ ({today_str})", "─"*16]
+                for kk, lab in labs:
+                    bc2, ts2 = shf[kk]
+                    ml.append(f"{lab}: {ts2:,.0f} ฿ ({bc2} บิล)")
+                ml.append("─"*16)
+                ml.append(f"รวม: {gt2:,.0f} ฿ ({gb2} บิล)")
+                ml.append("(ยอด ณ ตอนนี้ ยังไม่รวมโต๊ะที่ยังเล่นอยู่)")
+                if rep_grp:
+                    reply_msg(reply_token, line_token, "\n".join(ml),
+                              custom_menu=[("💰 ยอดวันนี้","ยอดวันนี้"),("👥 พนักงานวันนี้","พนักงานวันนี้")])
+                else:
+                    reply_msg(reply_token, line_token, "\n".join(ml))
+                continue
             if text == "พนักงานวันนี้":
                 rows = conn.execute("""
                     SELECT w.emp_name, s.shift_name, s.start_time, s.end_time
@@ -1890,7 +1918,11 @@ def line_webhook():
                     msg_lines = [f"👥 พนักงานวันนี้ ({today_str})\n{sep}"]
                     for r in rows:
                         msg_lines.append(f"👤 {r['emp_name']}\n   📋 {r['shift_name']} ({r['start_time']} - {r['end_time']})")
-                    reply_msg(reply_token, line_token, "\n".join(msg_lines))
+                    if group_id and group_id == settings.get("line_report_group_id","").strip():
+                        reply_msg(reply_token, line_token, "\n".join(msg_lines),
+                                  custom_menu=[("💰 ยอดวันนี้","ยอดวันนี้"),("👥 พนักงานวันนี้","พนักงานวันนี้")])
+                    else:
+                        reply_msg(reply_token, line_token, "\n".join(msg_lines))
                 else:
                     reply_msg(reply_token, line_token, f"❌ ไม่มีตารางงานวันนี้ครับ ({today_str})")
                 continue
@@ -2081,7 +2113,7 @@ def line_webhook():
                 else:
                     reply_msg(reply_token, line_token, f"❌ ไม่พบชื่อ '{emp_name}' ในระบบครับ")
                 continue
-            known = ["ลงทะเบียน","ตารางงาน","เลิกงาน","ลางาน","คำสั่ง","ช่วยด้วย","help","ขอไอดีกลุ่ม","เช็คอิน","อนุมัติ","พนักงานวันนี้"]
+            known = ["ลงทะเบียน","ตารางงาน","เลิกงาน","ลางาน","คำสั่ง","ช่วยด้วย","help","ขอไอดีกลุ่ม","เช็คอิน","อนุมัติ","พนักงานวันนี้","ยอดวันนี้"]
             if not any(text==k or text.startswith(k+" ") for k in known):
                 if not (group_id and group_id == settings.get("line_report_group_id","").strip()):
                     reply_msg(reply_token, line_token, "⚠️ ไม่รู้จักคำสั่งนี้ครับ\nพิมพ์ 'คำสั่ง' เพื่อดูรายการ")
@@ -2163,11 +2195,16 @@ def line_webhook():
     return "OK", 200
 
 
-def reply_msg(reply_token, token, text, show_menu=True):
+def reply_msg(reply_token, token, text, show_menu=True, custom_menu=None):
     import json, urllib.request
     url = "https://api.line.me/v2/bot/message/reply"
     msg = {"type": "text", "text": str(text)}
-    if show_menu:
+    if custom_menu:
+        msg["quickReply"] = {"items": [
+            {"type":"action","action":{"type":"message","label":lbl,"text":txt}}
+            for lbl, txt in custom_menu
+        ]}
+    elif show_menu:
         msg["quickReply"] = {
             "items": [
                 {"type":"action","action":{"type":"message","label":"เช็คอิน","text":"เช็คอิน"}},
