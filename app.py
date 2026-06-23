@@ -1792,6 +1792,9 @@ def line_webhook():
         user_id = event.get("source",{}).get("userId","")
         group_id = event.get("source",{}).get("groupId","")
         if group_id: print(f"[GROUP ID] {group_id}")
+        # เงียบในกลุ่มรายงาน — ไม่ตอบเมนูเช็คอิน
+        if group_id and group_id == settings.get("line_report_group_id","").strip():
+            continue
         msg_type = event.get("message",{}).get("type","")
         if reply_token in ["00000000000000000000000000000000","ffffffffffffffffffffffffffffffff"]:
             continue
