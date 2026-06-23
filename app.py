@@ -1792,6 +1792,8 @@ def line_webhook():
         user_id = event.get("source",{}).get("userId","")
         group_id = event.get("source",{}).get("groupId","")
         if group_id: print(f"[GROUP ID] {group_id}")
+        global _REPORT_GRP
+        _REPORT_GRP = bool(group_id and group_id == settings.get("line_report_group_id","").strip())
         msg_type = event.get("message",{}).get("type","")
         if reply_token in ["00000000000000000000000000000000","ffffffffffffffffffffffffffffffff"]:
             continue
@@ -1899,11 +1901,7 @@ def line_webhook():
                 ml.append("─"*16)
                 ml.append(f"รวม: {gt2:,.0f} ฿ ({gb2} บิล)")
                 ml.append("(ยอด ณ ตอนนี้ ยังไม่รวมโต๊ะที่ยังเล่นอยู่)")
-                if rep_grp:
-                    reply_msg(reply_token, line_token, "\n".join(ml),
-                              custom_menu=[("💰 ยอดวันนี้","ยอดวันนี้"),("👥 พนักงานวันนี้","พนักงานวันนี้")])
-                else:
-                    reply_msg(reply_token, line_token, "\n".join(ml))
+                reply_msg(reply_token, line_token, "\n".join(ml), show_menu=False)
                 continue
             if text == "พนักงานวันนี้":
                 rows = conn.execute("""
@@ -1922,11 +1920,7 @@ def line_webhook():
                     msg_lines = [f"👥 พนักงานวันนี้ ({today_str})\n{sep}"]
                     for r in rows:
                         msg_lines.append(f"👤 {r['emp_name']}\n   📋 {r['shift_name']} ({r['start_time']} - {r['end_time']})")
-                    if group_id and group_id == settings.get("line_report_group_id","").strip():
-                        reply_msg(reply_token, line_token, "\n".join(msg_lines),
-                                  custom_menu=[("💰 ยอดวันนี้","ยอดวันนี้"),("👥 พนักงานวันนี้","พนักงานวันนี้")])
-                    else:
-                        reply_msg(reply_token, line_token, "\n".join(msg_lines))
+                    reply_msg(reply_token, line_token, "\n".join(msg_lines))
                 else:
                     reply_msg(reply_token, line_token, f"❌ ไม่มีตารางงานวันนี้ครับ ({today_str})")
                 continue
@@ -2199,10 +2193,14 @@ def line_webhook():
     return "OK", 200
 
 
+_REPORT_GRP = False
+
 def reply_msg(reply_token, token, text, show_menu=True, custom_menu=None):
     import json, urllib.request
     url = "https://api.line.me/v2/bot/message/reply"
     msg = {"type": "text", "text": str(text)}
+    if _REPORT_GRP and not custom_menu:
+        custom_menu = [("💰 ยอดวันนี้","ยอดวันนี้"),("👥 พนักงานวันนี้","พนักงานวันนี้")]
     if custom_menu:
         msg["quickReply"] = {"items": [
             {"type":"action","action":{"type":"message","label":lbl,"text":txt}}
