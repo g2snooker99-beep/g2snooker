@@ -1707,7 +1707,7 @@ def cron_daily_report():
         st = {r["setting_key"]: r["setting_value"] for r in
               conn.execute("SELECT setting_key,setting_value FROM system_settings").fetchall()}
         conn.close()
-        tok = (st.get("line_token") or "").strip()
+        tok = (st.get("line_checkin_token") or "").strip() or (st.get("line_token") or "").strip()
         gid = (st.get("line_report_group_id") or "").strip()
         if tok and gid:
             import json as _json, urllib.request as _ur
