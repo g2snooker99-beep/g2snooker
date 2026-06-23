@@ -1792,9 +1792,6 @@ def line_webhook():
         user_id = event.get("source",{}).get("userId","")
         group_id = event.get("source",{}).get("groupId","")
         if group_id: print(f"[GROUP ID] {group_id}")
-        # เงียบในกลุ่มรายงาน — ไม่ตอบเมนูเช็คอิน
-        if group_id and group_id == settings.get("line_report_group_id","").strip():
-            continue
         msg_type = event.get("message",{}).get("type","")
         if reply_token in ["00000000000000000000000000000000","ffffffffffffffffffffffffffffffff"]:
             continue
@@ -2086,7 +2083,8 @@ def line_webhook():
                 continue
             known = ["ลงทะเบียน","ตารางงาน","เลิกงาน","ลางาน","คำสั่ง","ช่วยด้วย","help","ขอไอดีกลุ่ม","เช็คอิน","อนุมัติ","พนักงานวันนี้"]
             if not any(text==k or text.startswith(k+" ") for k in known):
-                reply_msg(reply_token, line_token, "⚠️ ไม่รู้จักคำสั่งนี้ครับ\nพิมพ์ 'คำสั่ง' เพื่อดูรายการ")
+                if not (group_id and group_id == settings.get("line_report_group_id","").strip()):
+                    reply_msg(reply_token, line_token, "⚠️ ไม่รู้จักคำสั่งนี้ครับ\nพิมพ์ 'คำสั่ง' เพื่อดูรายการ")
             continue
         elif msg_type == "image":
             emp = conn.execute("SELECT name,role FROM employees WHERE line_user_id=?", (user_id,)).fetchone()
