@@ -1913,6 +1913,10 @@ def line_webhook():
                     WHERE w.work_date = ?
                     ORDER BY s.start_time
                 """, (today_str,)).fetchall()
+                # กฎ: ถ้ามีคนอื่นอยู่กะ A (10:00) ด้วย → ตัด CEO โต๋ ออก (โต๋หยุด)
+                a_others = [r for r in rows if r["start_time"] == "10:00" and r["emp_name"] != "CEO โต๋"]
+                if a_others:
+                    rows = [r for r in rows if not (r["start_time"] == "10:00" and r["emp_name"] == "CEO โต๋")]
                 if rows:
                     sep = '─'*20
                     msg_lines = [f"👥 พนักงานวันนี้ ({today_str})\n{sep}"]
