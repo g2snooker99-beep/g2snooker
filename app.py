@@ -2117,6 +2117,9 @@ def line_webhook():
                     reply_msg(reply_token, line_token, "⚠️ ไม่รู้จักคำสั่งนี้ครับ\nพิมพ์ 'คำสั่ง' เพื่อดูรายการ")
             continue
         elif msg_type == "image":
+            # กลุ่มรายงาน: ไม่ประมวลผลรูป (ไม่ใช่ห้องเช็คอิน) → เงียบ
+            if group_id and group_id == settings.get("line_report_group_id","").strip():
+                continue
             emp = conn.execute("SELECT name,role FROM employees WHERE line_user_id=?", (user_id,)).fetchone()
             if not emp:
                 reply_msg(reply_token, line_token, "❌ ยังไม่ได้ลงทะเบียน\nพิมพ์: ลงทะเบียน [ชื่อ]")
