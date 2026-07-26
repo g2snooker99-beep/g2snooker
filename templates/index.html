@@ -783,6 +783,14 @@ h6.text-muted{color:#94a3b8 !important}
       <div class="d-flex justify-content-between py-2 border-bottom border-secondary">
         <span>ค่าอาหาร/เครื่องดื่ม:</span><span class="text-warning" id="chk-food">-</span>
       </div>
+      <div class="d-flex justify-content-between align-items-center py-2 border-bottom border-secondary">
+        <span class="small">โหมดราคา:</span>
+        <select id="chk-price-mode" class="form-select form-select-sm custom-input" style="width:170px" onchange="onCheckoutPriceModeChange()">
+          <option value="">ราคาปกติ (ตามช่วงเวลา)</option>
+          <option value="student">🎓 นักศึกษา 80฿/ชม.</option>
+          <option value="solo">🎱 ซ้อมเดี่ยว 80฿/ชม.</option>
+        </select>
+      </div>
       <div class="py-2 border-bottom border-secondary">
         <div class="d-flex justify-content-between align-items-center mb-2">
           <span class="small">ส่วนลด:</span>
@@ -1196,8 +1204,13 @@ function toggleSidebar(){
 }
 
 // ─── OPEN TABLE (await properly so timer shows immediately) ──
-async function openTable(tid){
-  await fetch('/api/start/'+tid, {method:'POST'});
+async function openTable(tid, priceMode){
+  await fetch('/api/start/'+tid, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({price_mode:priceMode||''})});
+  await updateGrid();
+}
+
+async function setPriceMode(tid, mode){
+  await fetch('/api/table/set_price_mode', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({table_id:tid, price_mode:mode})});
   await updateGrid();
 }
 
@@ -1410,6 +1423,7 @@ function renderGrid(){
       :(t.type=='snooker'?'':`<div class="text-muted text-center py-3 small">ว่าง</div>`);
 
     const tNote=tableNotes[t.id]||''; const noteLabel=tNote?`<div class="text-warning small mb-1" style="font-size:0.75rem">📝 ${tNote}</div>`:'';
+    const pmLabel = t.active && t.price_mode_label ? `<div class="small mb-1 fw-bold" style="font-size:0.75rem;color:${t.price_mode==='student'?'#38bdf8':'#f59e0b'}">${t.price_mode==='student'?'🎓':'🎱'} ${t.price_mode_label} 80฿/ชม.</div>` : '';
     const adminBtns=t.active?`<div class="d-flex gap-1 mt-2 flex-wrap">
       ${hasPerm('set_time')?`<button class="btn btn-xs flex-fill text-info" onclick="selT=${t.id};new bootstrap.Modal(document.getElementById('timeModal')).show()">⏱ เวลา</button>`:''}
       ${hasPerm('table_move')?`<button class="btn btn-xs flex-fill text-warning" onclick="doMove(${t.id})">↔ ย้าย</button>`:''}
@@ -1427,15 +1441,22 @@ function renderGrid(){
         </div>
         <small class="text-muted">${t.type=='snooker'?'สนุ๊กเกอร์':'อาหาร'}</small>
       </div>
-      ${noteLabel}${t.type=='snooker'?`<div class="timer ${t.active?'':'text-muted'}">${timeStr}</div>`:'<div class="py-1"></div>'}
+      ${noteLabel}${pmLabel}${t.type=='snooker'?`<div class="timer ${t.active?'':'text-muted'}">${timeStr}</div>`:'<div class="py-1"></div>'}
       ${t.active?costHtml:''}
       <div class="order-mini">${trCost+oRows}</div>
-      <div class="d-flex gap-2">
+      <div class="d-flex gap-2 flex-wrap">
         ${!t.active
-          ?`<button class="btn btn-success w-100 btn-sm fw-bold" onclick="openTable(${t.id})">เปิดโต๊ะ</button>`
+          ?`<button class="btn btn-success w-100 btn-sm fw-bold" onclick="openTable(${t.id})">เปิดโต๊ะ</button>
+            <button class="btn btn-outline-info btn-sm fw-bold flex-fill" onclick="openTable(${t.id},'student')">🎓 นักศึกษา 80฿</button>
+            <button class="btn btn-outline-warning btn-sm fw-bold flex-fill" onclick="openTable(${t.id},'solo')">🎱 ซ้อมเดี่ยว 80฿</button>`
           :`<button class="btn btn-warning flex-fill btn-sm fw-bold" onclick="openMenu(${t.id},'${t.name}')">สั่งของ</button>
             <button class='btn btn-danger flex-fill btn-sm fw-bold' onclick="reqPin('เช็คบิล ${t.name}','ยืนยันการรับชำระเงิน','💰',()=>prepCheckout(${t.id},${t.total_food||0}))">เช็คบิล</button>`}
       </div>
+      ${t.active && t.type=='snooker' ? `<div class="d-flex gap-1 mt-1">
+        <button class="btn btn-xs flex-fill ${!t.price_mode?'text-success fw-bold':'text-muted'}" onclick="setPriceMode(${t.id},'')">ปกติ</button>
+        <button class="btn btn-xs flex-fill ${t.price_mode==='student'?'text-info fw-bold':'text-muted'}" onclick="setPriceMode(${t.id},'student')">🎓 นศ.80฿</button>
+        <button class="btn btn-xs flex-fill ${t.price_mode==='solo'?'text-warning fw-bold':'text-muted'}" onclick="setPriceMode(${t.id},'solo')">🎱 เดี่ยว80฿</button>
+      </div>` : ''}
       ${adminBtns}
     </div></div>`;
   }
@@ -1611,11 +1632,14 @@ function calcCheckoutDiscount(){
   document.getElementById('chk-disc-amount').innerText=`- ${disc.toFixed(2)} ฿`;
   document.getElementById('chk-total').innerText=(_chkSubtotal-disc).toFixed(2)+' ฿';
 }
+let _chkFood = 0;
 async function prepCheckout(id,food){
   selT=id;
+  _chkFood=food||0;
   document.getElementById('chk-food').innerText=(food||0).toFixed(2)+" ฿";
   document.getElementById('chk-time').innerText="คำนวณ...";
   const res=await fetch('/api/tables');const data=await res.json();const t=data[id];
+  if(document.getElementById('chk-price-mode')) document.getElementById('chk-price-mode').value=(t&&t.price_mode)||'';
   if(t&&t.type==='snooker'){
     document.getElementById('chk-time').innerText=t.current_time_fee.toFixed(2)+" ฿";
     _chkSubtotal=t.current_time_fee+(food||0);
@@ -1628,6 +1652,16 @@ async function prepCheckout(id,food){
   document.getElementById('chk-total').innerText=_chkSubtotal.toFixed(2)+' ฿';
   new bootstrap.Modal(document.getElementById('checkoutModal')).show();
 }
+async function onCheckoutPriceModeChange(){
+  const mode=document.getElementById('chk-price-mode').value;
+  await fetch('/api/table/set_price_mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table_id:selT,price_mode:mode})});
+  const res=await fetch('/api/tables');const data=await res.json();const t=data[selT];
+  if(t&&t.type==='snooker'){
+    document.getElementById('chk-time').innerText=t.current_time_fee.toFixed(2)+" ฿";
+    _chkSubtotal=t.current_time_fee+(_chkFood||0);
+  }
+  calcCheckoutDiscount();
+}
 async function confirmCheckout(){
   try{
     const discType=document.getElementById('chk-disc-type').value;
@@ -1637,8 +1671,9 @@ async function confirmCheckout(){
     else if(discType==='percent') discount=Math.round(_chkSubtotal*discVal/100*100)/100;
     discount=Math.min(discount,_chkSubtotal);
     const payMethod=document.getElementById('chk-pay-method')?.value||'เงินสด';
+    const priceMode=document.getElementById('chk-price-mode')?.value||'';
     const res=await fetch('/api/table/checkout',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({table_id:selT,cashier:_pinConfirmerName||currentUser,discount:discount,payment_method:payMethod})});
+      body:JSON.stringify({table_id:selT,cashier:_pinConfirmerName||currentUser,discount:discount,payment_method:payMethod,price_mode:priceMode})});
     const d=await res.json();
     if(res.ok && d.status==='success'){
       lastBillData=d; notifiedTables.delete(selT);

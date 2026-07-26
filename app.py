@@ -12,6 +12,11 @@ def round_thb(amount):
     satang = amount - baht
     return baht + 1 if satang >= 0.50 else baht
 
+PRICE_MODES = {
+    'student': {'label': 'นักศึกษา', 'rate': 80.0},
+    'solo':    {'label': 'ซ้อมเดี่ยว', 'rate': 80.0},
+}
+
 app = Flask(__name__)
 
 def _get_rate(hr, rates):
@@ -40,12 +45,22 @@ def _get_discount(hr, discounts):
             if hr >= sh or hr < eh: return d['discount_amount'], d['period_name']
     return 0.0, ''
 
-def calc_fee(start, end, rates, discounts=[]):
-    _, total, _ = calc_fee_breakdown(start, end, rates, discounts)
+def calc_fee(start, end, rates, discounts=[], price_mode=None):
+    _, total, _ = calc_fee_breakdown(start, end, rates, discounts, price_mode)
     return total
 
-def calc_fee_breakdown(start, end, rates, discounts=[]):
+def calc_fee_breakdown(start, end, rates, discounts=[], price_mode=None):
     if not start or end <= start: return [], 0, 0
+
+    if price_mode and price_mode in PRICE_MODES:
+        pm = PRICE_MODES[price_mode]
+        mins = (end - start).total_seconds() / 60.0
+        fee = round((mins / 60.0) * pm['rate'], 2)
+        h = int(mins // 60); m = int(mins % 60)
+        breakdown = [{"rate": pm['rate'], "label": f"{pm['label']} {int(pm['rate'])}฿/ชม.",
+                      "mins": round(mins,1), "hours_str": f"{h}:{m:02d}",
+                      "fee": fee, "is_promo": False, "disc": 0}]
+        return breakdown, fee, 0
 
     hour_blocks = []
     curr = start
@@ -373,6 +388,7 @@ def load_sessions():
                 "total_food": r['total_food'] or 0,
                 "limit_mins": r['limit_mins'] or 0,
                 "note":       r['note'] or '',
+                "price_mode": (r['price_mode'] if 'price_mode' in r.keys() else '') or '',
             }
         except Exception as e:
             print(f"[WARN] load session table {r['table_id']}: {e}")
@@ -382,13 +398,14 @@ def load_sessions():
 def save_session(table_id, sess):
     conn = get_db_connection()
     conn.execute(
-        "INSERT INTO active_sessions_db (table_id,start_time,orders,total_food,limit_mins,note) VALUES (?,?,?,?,?,?) ON CONFLICT(table_id) DO UPDATE SET start_time=EXCLUDED.start_time,orders=EXCLUDED.orders,total_food=EXCLUDED.total_food,limit_mins=EXCLUDED.limit_mins,note=EXCLUDED.note",
+        "INSERT INTO active_sessions_db (table_id,start_time,orders,total_food,limit_mins,note,price_mode) VALUES (?,?,?,?,?,?,?) ON CONFLICT(table_id) DO UPDATE SET start_time=EXCLUDED.start_time,orders=EXCLUDED.orders,total_food=EXCLUDED.total_food,limit_mins=EXCLUDED.limit_mins,note=EXCLUDED.note,price_mode=EXCLUDED.price_mode",
         (table_id,
          sess['start'].isoformat() if sess.get('start') else None,
          json.dumps(sess.get('orders', []), ensure_ascii=False),
          sess.get('total_food', 0),
          sess.get('limit_mins', 0),
-         sess.get('note', ''))
+         sess.get('note', ''),
+         sess.get('price_mode', ''))
     )
     conn.commit(); conn.close()
 
@@ -437,6 +454,28 @@ def startup():
                 conn_p.commit(); conn_p.close()
             except Exception as pe:
                 print(f"[WARN] payment_method migration: {pe}")
+            try:
+                conn_pm = get_db_connection()
+                if IS_PG:
+                    conn_pm.execute("ALTER TABLE active_sessions_db ADD COLUMN IF NOT EXISTS price_mode TEXT DEFAULT ''")
+                else:
+                    existing_pm = [r[1] for r in conn_pm._raw.cursor().execute("PRAGMA table_info(active_sessions_db)").fetchall()]
+                    if 'price_mode' not in existing_pm:
+                        conn_pm.execute("ALTER TABLE active_sessions_db ADD COLUMN price_mode TEXT DEFAULT ''")
+                conn_pm.commit(); conn_pm.close()
+            except Exception as pme:
+                print(f"[WARN] price_mode column migration: {pme}")
+            try:
+                conn_pb = get_db_connection()
+                if IS_PG:
+                    conn_pb.execute("ALTER TABLE bills ADD COLUMN IF NOT EXISTS price_mode TEXT DEFAULT ''")
+                else:
+                    existing_pb = [r[1] for r in conn_pb._raw.cursor().execute("PRAGMA table_info(bills)").fetchall()]
+                    if 'price_mode' not in existing_pb:
+                        conn_pb.execute("ALTER TABLE bills ADD COLUMN price_mode TEXT DEFAULT ''")
+                conn_pb.commit(); conn_pb.close()
+            except Exception as pbe:
+                print(f"[WARN] bills price_mode migration: {pbe}")
             active_sessions = load_sessions()
         except Exception as e:
             print(f"[WARN] DB init failed: {e}")
@@ -495,24 +534,29 @@ def get_tables():
     res = {}
     for t in tabs:
         tid = t['id']
-        s   = active_sessions.get(tid, {"active":False,"orders":[],"total_food":0,"start":None,"limit_mins":0,"note":""})
+        s   = active_sessions.get(tid, {"active":False,"orders":[],"total_food":0,"start":None,"limit_mins":0,"note":"","price_mode":""})
         fee = 0
         if t['type']=='snooker' and s['active'] and s['start']:
             now=datetime.now()
             if s['limit_mins']>0:
                 cap=s['start']+timedelta(minutes=s['limit_mins'])
                 if now>cap: now=cap
-            fee = calc_fee(s['start'], now, rates, discounts)
+            fee = calc_fee(s['start'], now, rates, discounts, s.get('price_mode'))
         res[tid]={"id":tid,"name":t['name'],"type":t['type'],"active":s['active'],"orders":s['orders'],
                   "total_food":s.get('total_food',0),
                   "start":s['start'].isoformat() if s['start'] else None,
                   "start_ts":s['start'].timestamp() if s['start'] else None,
-                  "limit_mins":s.get('limit_mins',0),"current_time_fee":round(fee,2),"note":s.get('note','')}
+                  "limit_mins":s.get('limit_mins',0),"current_time_fee":round(fee,2),"note":s.get('note',''),
+                  "price_mode":s.get('price_mode',''),
+                  "price_mode_label":PRICE_MODES.get(s.get('price_mode',''),{}).get('label','')}
     return jsonify(res)
 
 @app.route("/api/start/<int:tid>", methods=["POST"])
 def start_table(tid):
-    sess = {"active":True,"start":datetime.now(),"orders":[],"total_food":0,"limit_mins":0,"note":""}
+    d = request.json or {}
+    price_mode = d.get('price_mode','') or ''
+    if price_mode and price_mode not in PRICE_MODES: price_mode = ''
+    sess = {"active":True,"start":datetime.now(),"orders":[],"total_food":0,"limit_mins":0,"note":"","price_mode":price_mode}
     active_sessions[tid] = sess
     save_session(tid, sess)
     send_relay(tid, "on")
@@ -526,6 +570,17 @@ def set_time():
         save_session(tid, active_sessions[tid])
         return jsonify({"status":"success"})
     return jsonify({"status":"error"}),400
+
+@app.route("/api/table/set_price_mode", methods=["POST"])
+def set_price_mode():
+    d=request.json; tid=int(d['table_id']); mode=d.get('price_mode','') or ''
+    if mode and mode not in PRICE_MODES:
+        return jsonify({"status":"error","msg":"โหมดราคาไม่ถูกต้อง"}),400
+    if tid in active_sessions:
+        active_sessions[tid]['price_mode']=mode
+        save_session(tid, active_sessions[tid])
+        return jsonify({"status":"success","price_mode":mode})
+    return jsonify({"status":"error","msg":"ไม่พบ session"}),400
 
 @app.route("/api/table/action", methods=["POST"])
 def table_action():
@@ -591,27 +646,30 @@ def checkout():
     try: discounts=conn.execute("SELECT * FROM discount_periods ORDER BY id").fetchall()
     except Exception: discounts=[]
     sess=active_sessions[tid]; fee=0; end=datetime.now()
+    price_mode_in = d.get('price_mode', None)
+    price_mode = price_mode_in if price_mode_in is not None else sess.get('price_mode','')
+    if price_mode and price_mode not in PRICE_MODES: price_mode = ''
     if sess['limit_mins']>0:
         el=math.ceil((end-sess['start']).total_seconds()/60)
         if el>sess['limit_mins']: end=sess['start']+timedelta(minutes=sess['limit_mins'])
     time_breakdown = []; promo_disc = 0
     if ti['type']=='snooker' and sess['start']:
-        time_breakdown, fee, promo_disc = calc_fee_breakdown(sess['start'], end, rates, discounts)
+        time_breakdown, fee, promo_disc = calc_fee_breakdown(sess['start'], end, rates, discounts, price_mode)
     fee=round(fee,2); subtotal=fee+sess['total_food']; total=round_thb(max(0,subtotal-bill_discount))
     bno=f"B{datetime.now().strftime('%y%m%d%H%M%S')}"
     from database import IS_PG
     if IS_PG:
         import psycopg2.extras
         raw=conn._raw.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'ชำระแล้ว',%s) RETURNING id",
-                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method))
+        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method,price_mode) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'ชำระแล้ว',%s,%s) RETURNING id",
+                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method,price_mode))
         bid=raw.fetchone()['id']
         for o in sess['orders']:
             raw.execute("INSERT INTO bill_items (bill_id,name,qty,price,total) VALUES (%s,%s,%s,%s,%s)",(bid,o['name'],o['qty'],o['price'],o['total_price']))
     else:
         raw=conn._raw.cursor()
-        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method) VALUES (?,?,?,?,?,?,?,?,?,'ชำระแล้ว',?)",
-                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method))
+        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method,price_mode) VALUES (?,?,?,?,?,?,?,?,?,'ชำระแล้ว',?,?)",
+                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method,price_mode))
         bid=raw.lastrowid
         for o in sess['orders']:
             raw.execute("INSERT INTO bill_items (bill_id,name,qty,price,total) VALUES (?,?,?,?,?)",(bid,o['name'],o['qty'],o['price'],o['total_price']))
@@ -663,7 +721,7 @@ def add_order():
     if item and item['stock_qty']>0:
         conn.execute("UPDATE inventory SET stock_qty=stock_qty-1 WHERE id=?",(iid,)); conn.commit()
         if tid not in active_sessions:
-            active_sessions[tid]={"active":True,"start":datetime.now(),"orders":[],"total_food":0,"limit_mins":0}
+            active_sessions[tid]={"active":True,"start":datetime.now(),"orders":[],"total_food":0,"limit_mins":0,"note":"","price_mode":""}
         orders=active_sessions[tid]['orders']
         fd=next((o for o in orders if int(o['id'])==iid),None)
         if fd: fd['qty']+=1; fd['total_price']=fd['qty']*fd['price']
