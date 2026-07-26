@@ -677,7 +677,7 @@ def checkout():
     if member_reward and fee>0:
         member_reward_disc = round(fee*0.10, 2)
         fee = round(fee-member_reward_disc, 2)
-        time_breakdown.append({"rate":0,"label":"🏆 สมาชิกที่ได้รับรางวัล (-10%)","hours_str":"","fee":-member_reward_disc,"is_promo":False,"disc":0})
+        time_breakdown.append({"rate":0,"label":"🏆 สมาชิกที่ได้รับรางวัล (-10%)","hours_str":"-10%","fee":-member_reward_disc,"is_promo":False,"disc":0})
     subtotal=fee+sess['total_food']; total=round_thb(max(0,subtotal-bill_discount))
     bno=f"B{datetime.now().strftime('%y%m%d%H%M%S')}"
     from database import IS_PG
