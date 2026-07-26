@@ -791,6 +791,13 @@ h6.text-muted{color:#94a3b8 !important}
           <option value="solo">🎱 ซ้อมเดี่ยว 80฿/ชม.</option>
         </select>
       </div>
+      <div class="d-flex justify-content-between align-items-center py-2 border-bottom border-secondary">
+        <span class="small">🏆 สมาชิกที่ได้รับรางวัล:</span>
+        <div class="form-check form-switch m-0">
+          <input class="form-check-input" type="checkbox" id="chk-member-reward" onchange="onMemberRewardChange()">
+          <label class="form-check-label small text-muted" for="chk-member-reward">ลด 10% ค่าโต๊ะ</label>
+        </div>
+      </div>
       <div class="py-2 border-bottom border-secondary">
         <div class="d-flex justify-content-between align-items-center mb-2">
           <span class="small">ส่วนลด:</span>
@@ -1632,18 +1639,20 @@ function calcCheckoutDiscount(){
   document.getElementById('chk-disc-amount').innerText=`- ${disc.toFixed(2)} ฿`;
   document.getElementById('chk-total').innerText=(_chkSubtotal-disc).toFixed(2)+' ฿';
 }
-let _chkFood = 0;
+let _chkFood = 0, _chkBaseTimeFee = 0;
 async function prepCheckout(id,food){
   selT=id;
   _chkFood=food||0;
   document.getElementById('chk-food').innerText=(food||0).toFixed(2)+" ฿";
   document.getElementById('chk-time').innerText="คำนวณ...";
+  if(document.getElementById('chk-member-reward')) document.getElementById('chk-member-reward').checked=false;
   const res=await fetch('/api/tables');const data=await res.json();const t=data[id];
   if(document.getElementById('chk-price-mode')) document.getElementById('chk-price-mode').value=(t&&t.price_mode)||'';
   if(t&&t.type==='snooker'){
+    _chkBaseTimeFee=t.current_time_fee;
     document.getElementById('chk-time').innerText=t.current_time_fee.toFixed(2)+" ฿";
     _chkSubtotal=t.current_time_fee+(food||0);
-  }else{document.getElementById('chk-time').innerText="0 ฿"; _chkSubtotal=(food||0);}
+  }else{_chkBaseTimeFee=0; document.getElementById('chk-time').innerText="0 ฿"; _chkSubtotal=(food||0);}
   // reset discount
   document.getElementById('chk-disc-type').value='none';
   setPayMethod('เงินสด');
@@ -1657,9 +1666,19 @@ async function onCheckoutPriceModeChange(){
   await fetch('/api/table/set_price_mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table_id:selT,price_mode:mode})});
   const res=await fetch('/api/tables');const data=await res.json();const t=data[selT];
   if(t&&t.type==='snooker'){
-    document.getElementById('chk-time').innerText=t.current_time_fee.toFixed(2)+" ฿";
-    _chkSubtotal=t.current_time_fee+(_chkFood||0);
+    _chkBaseTimeFee=t.current_time_fee;
+    applyMemberRewardPreview();
   }
+  calcCheckoutDiscount();
+}
+function applyMemberRewardPreview(){
+  const isReward=document.getElementById('chk-member-reward')?.checked||false;
+  const timeFee=isReward?Math.round(_chkBaseTimeFee*0.9*100)/100:_chkBaseTimeFee;
+  document.getElementById('chk-time').innerText=timeFee.toFixed(2)+" ฿"+(isReward?" (ลฤ10%)":"");
+  _chkSubtotal=timeFee+(_chkFood||0);
+}
+function onMemberRewardChange(){
+  applyMemberRewardPreview();
   calcCheckoutDiscount();
 }
 async function confirmCheckout(){
@@ -1672,8 +1691,9 @@ async function confirmCheckout(){
     discount=Math.min(discount,_chkSubtotal);
     const payMethod=document.getElementById('chk-pay-method')?.value||'เงินสด';
     const priceMode=document.getElementById('chk-price-mode')?.value||'';
+    const memberReward=document.getElementById('chk-member-reward')?.checked||false;
     const res=await fetch('/api/table/checkout',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({table_id:selT,cashier:_pinConfirmerName||currentUser,discount:discount,payment_method:payMethod,price_mode:priceMode})});
+      body:JSON.stringify({table_id:selT,cashier:_pinConfirmerName||currentUser,discount:discount,payment_method:payMethod,price_mode:priceMode,member_reward:memberReward})});
     const d=await res.json();
     if(res.ok && d.status==='success'){
       lastBillData=d; notifiedTables.delete(selT);

@@ -476,6 +476,17 @@ def startup():
                 conn_pb.commit(); conn_pb.close()
             except Exception as pbe:
                 print(f"[WARN] bills price_mode migration: {pbe}")
+            try:
+                conn_mr = get_db_connection()
+                if IS_PG:
+                    conn_mr.execute("ALTER TABLE bills ADD COLUMN IF NOT EXISTS member_reward_disc REAL DEFAULT 0")
+                else:
+                    existing_mr = [r[1] for r in conn_mr._raw.cursor().execute("PRAGMA table_info(bills)").fetchall()]
+                    if 'member_reward_disc' not in existing_mr:
+                        conn_mr.execute("ALTER TABLE bills ADD COLUMN member_reward_disc REAL DEFAULT 0")
+                conn_mr.commit(); conn_mr.close()
+            except Exception as mre:
+                print(f"[WARN] bills member_reward_disc migration: {mre}")
             active_sessions = load_sessions()
         except Exception as e:
             print(f"[WARN] DB init failed: {e}")
@@ -655,21 +666,28 @@ def checkout():
     time_breakdown = []; promo_disc = 0
     if ti['type']=='snooker' and sess['start']:
         time_breakdown, fee, promo_disc = calc_fee_breakdown(sess['start'], end, rates, discounts, price_mode)
-    fee=round(fee,2); subtotal=fee+sess['total_food']; total=round_thb(max(0,subtotal-bill_discount))
+    fee=round(fee,2)
+    member_reward = bool(d.get('member_reward', False))
+    member_reward_disc = 0.0
+    if member_reward and fee>0:
+        member_reward_disc = round(fee*0.10, 2)
+        fee = round(fee-member_reward_disc, 2)
+        time_breakdown.append({"rate":0,"label":"🏆 สมาชิกที่ได้รับรางวัล (-10%)","hours_str":"","fee":-member_reward_disc,"is_promo":False,"disc":0})
+    subtotal=fee+sess['total_food']; total=round_thb(max(0,subtotal-bill_discount))
     bno=f"B{datetime.now().strftime('%y%m%d%H%M%S')}"
     from database import IS_PG
     if IS_PG:
         import psycopg2.extras
         raw=conn._raw.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method,price_mode) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'ชำระแล้ว',%s,%s) RETURNING id",
-                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method,price_mode))
+        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method,price_mode,member_reward_disc) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'ชำระแล้ว',%s,%s,%s) RETURNING id",
+                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method,price_mode,member_reward_disc))
         bid=raw.fetchone()['id']
         for o in sess['orders']:
             raw.execute("INSERT INTO bill_items (bill_id,name,qty,price,total) VALUES (%s,%s,%s,%s,%s)",(bid,o['name'],o['qty'],o['price'],o['total_price']))
     else:
         raw=conn._raw.cursor()
-        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method,price_mode) VALUES (?,?,?,?,?,?,?,?,?,'ชำระแล้ว',?,?)",
-                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method,price_mode))
+        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method,price_mode,member_reward_disc) VALUES (?,?,?,?,?,?,?,?,?,'ชำระแล้ว',?,?,?)",
+                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method,price_mode,member_reward_disc))
         bid=raw.lastrowid
         for o in sess['orders']:
             raw.execute("INSERT INTO bill_items (bill_id,name,qty,price,total) VALUES (?,?,?,?,?)",(bid,o['name'],o['qty'],o['price'],o['total_price']))
@@ -707,6 +725,7 @@ def checkout():
     return jsonify({"status":"success","bill_no":bno,"bill_id":bid,"table_name":ti['name'],"total":total,
                     "time_fee":fee,"food_fee":sess['total_food'],"discount":bill_discount,"promo_disc":promo_disc,
                     "cashier":cashier,"payment_method":payment_method,
+                    "member_reward":member_reward,"member_reward_disc":member_reward_disc,
                     "start_time":tsnap,"end_time":end.isoformat(),"orders":snap,"time_breakdown":time_breakdown})
 
 # ── ORDERS ───────────────────────────────────────────────────
