@@ -195,8 +195,12 @@ def send_line_cancel(message):
     except Exception as e:
         print(f"[WARN] LINE cancel notify: {e}")
 
-def send_line_cancel_flex(cancel_type, table_name, detail, cashier, time_str):
+def send_line_cancel_flex(cancel_type, table_name, detail, cashier, time_str, reason=''):
     icon = "🚫" if cancel_type == "ยกเลิกโต๊ะ" else "🗑️"
+    reason_row = [{"type": "box", "layout": "horizontal", "contents": [
+                    {"type": "text", "text": "เหตุผล", "size": "sm", "color": "#ff6b6b", "flex": 2},
+                    {"type": "text", "text": reason, "size": "sm", "color": "#ffd166", "flex": 4, "wrap": True}
+                ]}] if reason else []
     flex = {
         "type": "bubble",
         "header": {
@@ -217,6 +221,7 @@ def send_line_cancel_flex(cancel_type, table_name, detail, cashier, time_str):
                     {"type": "text", "text": "รายการ", "size": "sm", "color": "#ff6b6b", "flex": 2},
                     {"type": "text", "text": detail, "size": "sm", "color": "#ffffff", "flex": 4, "wrap": True}
                 ]},
+            ] + reason_row + [
                 {"type": "separator", "margin": "sm", "color": "#5a0000"},
                 {"type": "box", "layout": "horizontal", "contents": [
                     {"type": "text", "text": "พนักงาน", "size": "sm", "color": "#ff6b6b", "flex": 2},
@@ -621,7 +626,7 @@ def table_action():
         send_relay(src, 'off')
         now_th = (datetime.now() + TZ_OFFSET).strftime('%H:%M')
         send_telegram_cancel(f"🚫 <b>ยกเลิกโต๊ะ</b>\nโต๊ะ: {tab_name}\nรายการ: {detail}\nพนักงาน: {cashier}\nเวลา: {now_th}")
-        send_line_cancel_flex("ยกเลิกโต๊ะ", tab_name, detail, cashier, now_th)
+        send_line_cancel_flex("ยกเลิกโต๊ะ", tab_name, detail, cashier, now_th, reason)
         return jsonify({"status":"success"})
     elif action=='move' and src in active_sessions and dst not in active_sessions:
         active_sessions[dst]=active_sessions.pop(src)
