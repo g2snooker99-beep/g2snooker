@@ -1552,7 +1552,7 @@ async function doMove(sid){
   let target = null;
   for(const id in lastTableData){
     const t = lastTableData[id];
-    if(t.name === targetInput || t.name === ('โต๊ะ '+targetInput) || String(id) === targetInput){
+    if(t.name === targetInput || t.name === ('โต๊ะ '+targetInput)){
       target = parseInt(id);
       break;
     }
