@@ -1398,12 +1398,7 @@ function renderGrid(){
   // render จาก cache — ไม่ยิง server
   const data=lastTableData;
   const grid=document.getElementById('table-grid');grid.innerHTML='';
-  const _ids=Object.keys(data).sort(function(a,b){
-    var na=parseInt(((data[a]&&data[a].name)||a).toString().replace(/\D/g,""))||0;
-    var nb=parseInt(((data[b]&&data[b].name)||b).toString().replace(/\D/g,""))||0;
-    return na-nb;
-  });
-  for(let id of _ids){
+  for(let id in data){
     const t=data[id];let timeStr="00:00:00",minTxt="",costHtml="",trCost="";
     let grand=t.total_food||0;
     if(t.active&&t.start_ts){
