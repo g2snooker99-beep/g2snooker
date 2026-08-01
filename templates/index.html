@@ -1537,10 +1537,12 @@ async function confirmCancelTable(){
   updateGrid();
 }
 async function doMove(sid){
-  const dst=prompt(`ย้ายโต๊ะ ${sid} ไปโต๊ะ: (หรือ "merge:X" เพื่อรวม)`);if(!dst)return;
-  let action='move',target=parseInt(dst);
+  const srcName = (lastTableData[sid] && lastTableData[sid].name) || ('โต๊ะ '+sid);
+  const dst = prompt(`ย้ายโต๊ะ ${srcName} ไปโต๊ะ: (หรือ "merge:X" เพื่อรวม)`);
+  if(!dst) return;
+  let action='move', target=parseInt(dst);
   if(dst.toLowerCase().startsWith('merge:')){action='merge';target=parseInt(dst.split(':')[1]);}
-  if(isNaN(target))return;
+  if(isNaN(target)) return;
   await fetch('/api/table/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,source:sid,target})});
   updateGrid();
 }
