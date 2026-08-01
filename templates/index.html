@@ -650,6 +650,14 @@ h6.text-muted{color:#94a3b8 !important}
           <label class="text-muted small">QR Code URL (PromptPay/Line/เว็บ)</label>
           <input type="text" id="set-shop-qr" class="form-control custom-input" placeholder="https://... หรือ PromptPay เบอร์โทร">
         </div>
+        <div class="col-md-4">
+          <label class="text-muted small">ชื่อย่อ (แสดงในเมนูซ้าย)</label>
+          <input type="text" id="set-shop-abbr" class="form-control custom-input" placeholder="เช่น G2S" maxlength="10">
+        </div>
+        <div class="col-md-4">
+          <label class="text-muted small">หัวข้อหน้าโต๊ะ (Floor Plan)</label>
+          <input type="text" id="set-floor-title" class="form-control custom-input" placeholder="เช่น ผังโต๊ะ, FLOOR PLAN">
+        </div>
         <div class="col-12">
           <button class="btn btn-warning fw-bold px-4" onclick="saveShopInfo()"><i class="fa-solid fa-floppy-disk me-2"></i>บันทึกข้อมูลร้าน</button>
           <span class="text-muted small ms-3">QR Code จะแสดงในใบเสร็จอัตโนมัติ</span>
@@ -1299,10 +1307,15 @@ function applyBranding(){
   // Login screen
   const loginName = document.getElementById('login-shop-name');
   if(loginName) loginName.innerText = name;
-  // Sidebar abbreviation — ใช้ 3 ตัวแรก
-  const abbr = name.replace(/\s+/g,'').substring(0,3).toUpperCase();
+  // Sidebar abbreviation — ใช้ชื่อย่อที่ตั้งไว้ ถ้าไม่ได้ตั้งค่อยตัด 3 ตัวแรก
+  const customAbbr = localStorage.getItem('shop_abbr');
+  const abbr = customAbbr ? customAbbr.toUpperCase() : name.replace(/\s+/g,'').substring(0,3).toUpperCase();
   const sideAbbr = document.getElementById('sidebar-shop-abbr');
   if(sideAbbr) sideAbbr.innerText = abbr;
+  // Floor plan title
+  const floorTitle = localStorage.getItem('floor_title');
+  const pageTitle = document.getElementById('page-title');
+  if(pageTitle && floorTitle) pageTitle.innerText = floorTitle;
 }
 // Load branding on page load (before login)
 (async function initBranding(){
@@ -2186,6 +2199,8 @@ async function loadSettings(){
   if(document.getElementById('set-tg-cancel-group')) document.getElementById('set-tg-cancel-group').value=s.telegram_cancel_group_id||'';
   // โหลดข้อมูลร้านจาก DB ทุกครั้ง
   if(document.getElementById('set-shop-name')) document.getElementById('set-shop-name').value=s.shop_name||'G2 SNOOKER';
+  if(document.getElementById('set-shop-abbr')) document.getElementById('set-shop-abbr').value=localStorage.getItem('shop_abbr')||'';
+  if(document.getElementById('set-floor-title')) document.getElementById('set-floor-title').value=localStorage.getItem('floor_title')||'';
   if(document.getElementById('sc-emp-mgr')) document.getElementById('sc-emp-mgr').value=s.sc_emp_mgr||'โต๋';
   if(document.getElementById('sc-emp-rot1')) document.getElementById('sc-emp-rot1').value=s.sc_emp_rot1||'บิว';
   if(document.getElementById('sc-emp-rot2')) document.getElementById('sc-emp-rot2').value=s.sc_emp_rot2||'ใบเฟิร์น';
@@ -2470,6 +2485,8 @@ async function saveShopInfo(){
   const name=document.getElementById('set-shop-name').value.trim()||'G2 SNOOKER';
   const sub=document.getElementById('set-shop-subtitle').value.trim()||'ระบบ POS Enterprise';
   let qr=document.getElementById('set-shop-qr').value.trim();
+  const abbr=document.getElementById('set-shop-abbr').value.trim();
+  const floorTitle=document.getElementById('set-floor-title').value.trim();
   // เก็บเบอร์โทรดิบ ไม่ต้องแปลง - จะ generate EMV payload ตอนพิมพ์
   await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({shop_name:name,shop_subtitle:sub,shop_qr_url:qr})});
@@ -2477,6 +2494,8 @@ async function saveShopInfo(){
   localStorage.setItem('shop_name',name);
   localStorage.setItem('shop_subtitle',sub);
   localStorage.setItem('shop_qr_url',qr);
+  localStorage.setItem('shop_abbr',abbr);
+  localStorage.setItem('floor_title',floorTitle);
   applyBranding();
   alert('✅ บันทึกข้อมูลร้านสำเร็จ');
 }
