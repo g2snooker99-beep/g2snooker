@@ -1279,15 +1279,22 @@ def _get_esp_url():
     except: return None
 
 def send_relay(table_number, state):
-    url = _get_esp_url()
-    if not url: return
+    """ส่งคำสั่งเปิด/ปิดไฟโต๊ะผ่าน MQTT (HiveMQ Cloud)"""
     try:
-        data = json.dumps({"table": table_number, "state": state}).encode()
-        req = _ureq.Request(f"{url}/relay", data=data,
-                            headers={"Content-Type": "application/json"})
-        _ureq.urlopen(req, timeout=2)
+        import paho.mqtt.publish as _mqtt_publish
+        import ssl as _ssl
+        payload = json.dumps({"table": table_number, "state": state})
+        _mqtt_publish.single(
+            "g2/relay/cmd",
+            payload=payload,
+            hostname="1bfcbdfc8ac747fb8e2de47a04bf1d2d.s1.eu.hivemq.cloud",
+            port=8883,
+            auth={"username": "G2board", "password": "Aa250899"},
+            tls={"tls_version": _ssl.PROTOCOL_TLS_CLIENT},
+            client_id=f"g2pos-{table_number}",
+        )
     except Exception as e:
-        print(f"[WARN] Relay table {table_number}: {e}")
+        print(f"[WARN] Relay MQTT table {table_number}: {e}")
 
 @app.route("/api/relay/test", methods=["POST"])
 def relay_test():

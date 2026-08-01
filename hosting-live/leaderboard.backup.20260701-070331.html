@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <title>G2 Leaderboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <link rel="stylesheet" href="./css/style.css" />
+
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+</head>
+
+<body>
+  <div class="page">
+    <div class="card">
+      <h1 style="text-align:center;">🏆 อันดับเดือนนี้</h1>
+      <p class="sub" style="text-align:center;">G2 Snooker Monthly Points</p>
+
+      <div class="notice">
+        1 ชั่วโมง = 1 แต้ม<br>
+        Top 3 ประจำเดือน รับเสื้อ G2 Limited
+      </div>
+
+      <div id="leaderboard" style="margin-top:16px;">
+        กำลังโหลดอันดับ...
+      </div>
+
+      <button onclick="location.href='./index.html'">
+        ← กลับ
+      </button>
+
+      <button class="secondary" onclick="location.href='./rules.html'">
+        ดูกติกา Top 3
+      </button>
+    </div>
+  </div>
+
+  <script src="./js/firebase-config.js"></script>
+
+  <script>
+    async function loadLeaderboard() {
+      const box = document.getElementById("leaderboard");
+
+      try {
+        const snap = await db.collection("users").get();
+
+        let members = [];
+
+        snap.forEach(doc => {
+          const u = doc.data();
+
+          const points = Number(u.monthlyPoints || 0);
+
+          if (u.role === "member" && points > 0) {
+            members.push({
+              id: doc.id,
+              ...u,
+              monthlyPoints: points
+            });
+          }
+        });
+
+        members.sort((a, b) => {
+          return (b.monthlyPoints || 0) - (a.monthlyPoints || 0);
+        });
+
+        if (members.length === 0) {
+          box.innerHTML = `
+            <div class="notice">
+              ยังไม่มีสมาชิกในระบบ
+            </div>
+          `;
+          return;
+        }
+
+        let html = "";
+
+        members.forEach((u, index) => {
+          const rank = index + 1;
+
+          const medal =
+            rank === 1 ? "🥇" :
+            rank === 2 ? "🥈" :
+            rank === 3 ? "🥉" :
+            "#" + rank;
+
+          const badge =
+            rank === 1 ? "Champion" :
+            rank <= 3 ? "Top Rank" :
+            "Member";
+
+          html += `
+            <div class="leader-row ${rank <= 3 ? "top3" : ""}">
+              <span>${medal}</span>
+              <img src="${u.pictureUrl || ""}" />
+              <div>
+                <b>${u.nickname || u.displayName || "-"}</b>
+                <p>${u.memberId || "-"} • ${badge}</p>
+              </div>
+              <strong>${u.monthlyPoints || 0}</strong>
+            </div>
+          `;
+        });
+
+        box.innerHTML = html;
+
+      } catch (error) {
+        console.error("Leaderboard Error:", error);
+
+        box.innerHTML = `
+          <div class="notice">
+            โหลดอันดับไม่ได้<br>
+            ${error.message}
+          </div>
+        `;
+      }
+    }
+
+    loadLeaderboard();
+  </script>
+</body>
+</html>

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8"/>
+  <title>G2 Member – ประวัติสิทธิ์</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="./css/style.css"/>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <style>
+    .reward-card{
+      margin-top:12px;
+      padding:14px;
+      border-radius:18px;
+      background:rgba(255,255,255,0.07);
+      border:1px solid rgba(255,255,255,0.12);
+    }
+    .reward-title{font-weight:900;color:#fff;font-size:16px;margin-bottom:6px;}
+    .reward-meta{color:#9fe8c0;font-size:13px;margin-bottom:4px;}
+    .reward-desc{color:#cfcfcf;font-size:13px;margin-bottom:8px;}
+    .status-active{color:#2de080;font-weight:900;}
+    .status-used{color:#ffd166;font-weight:900;}
+    .status-other{color:#ff7070;font-weight:900;}
+    .empty{
+      text-align:center;
+      color:#9fe8c0;
+      padding:20px 8px;
+      font-size:14px;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="card">
+    <h1 style="font-size:22px;text-align:center;">G2 SNOOKER</h1>
+    <p class="sub" style="text-align:center;">ประวัติสิทธิ์ / รางวัล</p>
+
+    <div id="loading" style="text-align:center;padding:30px 0;">กำลังโหลด…</div>
+
+    <div id="content" class="hidden">
+      <div id="memberInfo" style="text-align:center;margin-bottom:14px;"></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+        <button onclick="setFilter('all')" class="secondary" style="font-size:13px;padding:10px;">ทั้งหมด</button>
+        <button onclick="setFilter('active')" class="secondary" style="font-size:13px;padding:10px;">ยังใช้ได้</button>
+      </div>
+
+      <div id="rewardList"></div>
+
+      <button onclick="window.location.href='./member.html'" style="margin-top:18px;">⬅️ กลับหน้าสมาชิก</button>
+    </div>
+
+    <div id="error" class="hidden" style="text-align:center;color:#ff7070;padding:20px;"></div>
+  </div>
+</div>
+
+<script src="./js/firebase-config.js"></script>
+<script>
+  const MEMBER_LIFF = "2010084269-aui1GaWz";
+
+  let profile = null;
+  let memberDocId = null;
+  let allRewards = [];
+  let currentFilter = "all";
+
+  function formatDate(ts) {
+    try {
+      if (!ts) return "-";
+      const d = ts.toDate ? ts.toDate() : new Date(ts);
+      return d.toLocaleString("th-TH", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    } catch (e) {
+      return "-";
+    }
+  }
+
+  function statusText(status) {
+    if (status === "active") return '<span class="status-active">ยังใช้ได้</span>';
+    if (status === "used") return '<span class="status-used">ใช้แล้ว</span>';
+    return '<span class="status-other">' + (status || "-") + '</span>';
+  }
+
+  function rewardTypeText(type) {
+    if (type === "ranking_shirt") return "เสื้อ Ranking";
+    if (type === "discount_10") return "ส่วนลด 10%";
+    return type || "สิทธิ์รางวัล";
+  }
+
+  function setFilter(filter) {
+    currentFilter = filter;
+    renderRewards();
+  }
+
+  function renderRewards() {
+    const box = document.getElementById("rewardList");
+
+    let list = allRewards.slice();
+
+    if (currentFilter === "active") {
+      list = list.filter(r => r.status === "active");
+    }
+
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">ยังไม่มีประวัติสิทธิ์ / รางวัล</div>';
+      return;
+    }
+
+    box.innerHTML = list.map(r => {
+      const title = r.title || rewardTypeText(r.rewardType);
+      const rank = r.rank ? "Top " + r.rank + " • " : "";
+      const usedLine = r.status === "used"
+        ? '<div class="reward-meta">ใช้เมื่อ: ' + formatDate(r.usedAt) + '</div>'
+        : '';
+
+      return `
+        <div class="reward-card">
+          <div class="reward-title">${rank}${title}</div>
+          <div class="reward-meta">ประเภท: ${rewardTypeText(r.rewardType)}</div>
+          <div class="reward-meta">เดือน: ${r.monthKey || "-"} • ${r.points || 0} แต้ม</div>
+          <div class="reward-desc">${r.description || ""}</div>
+          <div class="reward-meta">สถานะ: ${statusText(r.status)}</div>
+          ${usedLine}
+        </div>
+      `;
+    }).join("");
+  }
+
+  async function init() {
+    await liff.init({ liffId: MEMBER_LIFF });
+
+    if (!liff.isLoggedIn()) {
+      liff.login();
+      return;
+    }
+
+    profile = await liff.getProfile();
+
+    const userRef = db.collection("users").doc(profile.userId);
+    const userSnap = await userRef.get();
+
+    if (!userSnap.exists) {
+      window.location.href = "./index.html";
+      return;
+    }
+
+    memberDocId = userSnap.id;
+    const user = userSnap.data() || {};
+
+    document.getElementById("memberInfo").innerHTML = `
+      <div style="color:#fff;font-weight:900;">${user.displayName || user.name || profile.displayName || "สมาชิก"}</div>
+      <div style="color:#9fe8c0;font-size:13px;">รหัส: ${user.memberId || memberDocId}</div>
+      <div style="color:#ffd166;font-size:13px;font-weight:900;">แต้มเดือนนี้: ${user.monthlyPoints || 0}</div>
+    `;
+
+    const rewardsSnap = await db.collection("monthlyRewards")
+      .where("userId", "==", memberDocId)
+      .get();
+
+    allRewards = [];
+
+    rewardsSnap.forEach(doc => {
+      allRewards.push({
+        id: doc.id,
+        ...(doc.data() || {})
+      });
+    });
+
+    allRewards.sort((a, b) => {
+      const at = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+      const bt = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+      return bt - at;
+    });
+
+    renderRewards();
+
+    document.getElementById("loading").classList.add("hidden");
+    document.getElementById("content").classList.remove("hidden");
+  }
+
+  init().catch(e => {
+    document.getElementById("loading").classList.add("hidden");
+    const err = document.getElementById("error");
+    err.textContent = "เกิดข้อผิดพลาด: " + (e.message || e);
+    err.classList.remove("hidden");
+  });
+</script>
+</body>
+</html>

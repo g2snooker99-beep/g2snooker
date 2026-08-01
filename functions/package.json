@@ -1,0 +1,17 @@
+{
+  "name": "g2snooker-functions",
+  "description": "Cloud Functions for G2 Snooker membership system",
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.1.0",
+    "firebase-functions": "^6.3.2"
+  },
+  "devDependencies": {}
+}

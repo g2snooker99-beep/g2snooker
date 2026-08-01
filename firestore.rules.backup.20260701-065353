@@ -1,0 +1,47 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ระบบสมาชิก G2 Snooker ใช้ LIFF profile เป็นหลัก
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if false;
+    }
+
+    // ประวัติการเพิ่ม/หักแต้ม
+    match /pointTransactions/{txId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false;
+    }
+
+    // สิทธิ์รางวัลรายเดือน เช่น เสื้อ Ranking / ส่วนลด 10%
+    match /monthlyRewards/{rewardId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
+    }
+
+    // ประวัติการรันสรุปรางวัลรายเดือน
+    match /monthlyRewardRuns/{runId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if false;
+    }
+
+    // ประวัติการใช้สิทธิ์รางวัล
+    match /rewardRedemptions/{redemptionId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false;
+    }
+
+    // กัน collection อื่นที่ไม่ได้ระบุ
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

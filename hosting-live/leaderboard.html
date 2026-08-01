@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8"/>
+  <title>G2 Leaderboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="./css/style.css"/>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <style>
+    .rank-row{display:flex;align-items:center;gap:12px;padding:12px;border-radius:16px;background:rgba(255,255,255,0.07);margin-top:10px;}
+    .rank-row.top{border:1px solid rgba(255,209,102,0.65);background:rgba(255,209,102,0.10);}
+    .rank-no{width:34px;font-weight:900;color:#fff;text-align:center;}
+    .rank-avatar{width:44px;height:44px;border-radius:50%;object-fit:cover;background:rgba(255,255,255,0.15);}
+    .rank-info{flex:1;min-width:0;}
+    .rank-name{color:#fff;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .rank-meta{color:#9fe8c0;font-size:12px;margin-top:2px;}
+    .rank-points{color:#48f08d;font-weight:900;font-size:20px;}
+    .month-select{
+      width:100%;
+      padding:12px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,0.22);
+      background:#f5f5f5;
+      color:#111;
+      margin:12px 0;
+      font-weight:900;
+      text-align:center;
+    }
+    .month-select option{
+      background:#ffffff;
+      color:#111111;
+      font-weight:900;
+    }
+    .notice{background:rgba(45,224,128,0.11);color:#b9ffd4;border-radius:14px;padding:12px;font-size:14px;margin-top:12px;line-height:1.5;}
+    .empty{background:rgba(255,255,255,0.07);color:#9fe8c0;border-radius:14px;padding:14px;margin-top:16px;text-align:center;}
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="card">
+    <h1 id="title" style="text-align:center;">🏆 อันดับเดือนนี้</h1>
+    <p class="sub" id="subtitle" style="text-align:center;">G2 Snooker Monthly Points</p>
+
+    <select id="monthSelect" class="month-select" onchange="changeMonth()">
+      <option value="current">เดือนนี้</option>
+    </select>
+
+    <div class="notice">
+      1 ชั่วโมง = 1 แต้ม<br>
+      Top 3 ประจำเดือน รับเสื้อ G2 Limited
+    </div>
+
+    <div id="leaderboard" style="margin-top:16px;">
+      กำลังโหลดอันดับ...
+    </div>
+
+    <button onclick="window.location.href='./member.html'" style="margin-top:18px;">← กลับ</button>
+    <button class="secondary" onclick="window.location.href='./rules.html'" style="margin-top:10px;">ดูกติกา Top 3</button>
+  </div>
+</div>
+
+<script src="./js/firebase-config.js"></script>
+<script>
+  function currentMonthKey() {
+    const d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+  }
+
+  function monthLabel(monthKey) {
+    if (monthKey === "current") return "เดือนนี้";
+    const [y, m] = monthKey.split("-");
+    return "ย้อนหลัง " + m + "/" + y;
+  }
+
+  function medal(rank) {
+    if (rank === 1) return "🥇";
+    if (rank === 2) return "🥈";
+    if (rank === 3) return "🥉";
+    return "#" + rank;
+  }
+
+  function roleLabel(rank) {
+    if (rank === 1) return "Champion";
+    if (rank === 2 || rank === 3) return "Top Rank";
+    return "Member";
+  }
+
+  function safeImg(url) {
+    return url || "data:image/svg+xml;charset=utf-8," + encodeURIComponent(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80">
+        <rect width="100%" height="100%" fill="#1f2b24"/>
+        <text x="50%" y="54%" text-anchor="middle" font-size="28" fill="#9fe8c0">G2</text>
+      </svg>
+    `);
+  }
+
+  async function loadMonths() {
+    const select = document.getElementById("monthSelect");
+
+    try {
+      const snap = await db.collection("monthlyLeaderboards").get();
+      const months = [];
+
+      snap.forEach(doc => months.push(doc.id));
+      months.sort().reverse();
+
+      months.forEach(monthKey => {
+        const opt = document.createElement("option");
+        opt.value = monthKey;
+        opt.textContent = monthLabel(monthKey);
+        select.appendChild(opt);
+      });
+    } catch (e) {
+      console.warn("load months failed", e);
+    }
+  }
+
+  async function loadCurrentLeaderboard() {
+    const snap = await db.collection("users").get();
+    const rows = [];
+
+    snap.forEach(doc => {
+      const u = doc.data() || {};
+      const role = u.role || "member";
+      const points = Number(u.monthlyPoints || 0);
+
+      if (role === "staff" || role === "admin") return;
+      if (!Number.isFinite(points) || points <= 0) return;
+
+      rows.push({
+        userId: doc.id,
+        displayName: u.displayName || u.name || u.fullName || "สมาชิก",
+        memberId: u.memberId || "",
+        pictureUrl: u.pictureUrl || u.photoURL || "",
+        monthlyPoints: points
+      });
+    });
+
+    rows.sort((a, b) => {
+      if (b.monthlyPoints !== a.monthlyPoints) return b.monthlyPoints - a.monthlyPoints;
+      return String(a.displayName || "").localeCompare(String(b.displayName || ""), "th");
+    });
+
+    return rows.map((r, i) => ({ ...r, rank: i + 1 }));
+  }
+
+  async function loadArchivedLeaderboard(monthKey) {
+    const snap = await db.collection("monthlyLeaderboards")
+      .doc(monthKey)
+      .collection("items")
+      .get();
+
+    const rows = [];
+
+    snap.forEach(doc => {
+      rows.push({
+        id: doc.id,
+        ...(doc.data() || {})
+      });
+    });
+
+    rows.sort((a, b) => {
+      const ar = Number(a.rank || 999999);
+      const br = Number(b.rank || 999999);
+      if (ar !== br) return ar - br;
+      return Number(b.monthlyPoints || 0) - Number(a.monthlyPoints || 0);
+    });
+
+    return rows;
+  }
+
+  function render(rows) {
+    const box = document.getElementById("leaderboard");
+
+    if (!rows.length) {
+      box.innerHTML = '<div class="empty">ยังไม่มีคะแนนในเดือนนี้</div>';
+      return;
+    }
+
+    box.innerHTML = rows.map((u, idx) => {
+      const rank = Number(u.rank || idx + 1);
+      const top = rank <= 3 ? " top" : "";
+      const name = u.displayName || u.name || "สมาชิก";
+      const memberId = u.memberId || "";
+      const points = Number(u.monthlyPoints || u.points || 0);
+
+      return `
+        <div class="rank-row${top}">
+          <div class="rank-no">${medal(rank)}</div>
+          <img class="rank-avatar" src="${safeImg(u.pictureUrl)}" onerror="this.src='${safeImg("")}'"/>
+          <div class="rank-info">
+            <div class="rank-name">${name}</div>
+            <div class="rank-meta">${memberId || u.userId || ""} • ${roleLabel(rank)}</div>
+          </div>
+          <div class="rank-points">${points}</div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  async function changeMonth() {
+    const mode = document.getElementById("monthSelect").value;
+    const title = document.getElementById("title");
+    const subtitle = document.getElementById("subtitle");
+    const box = document.getElementById("leaderboard");
+
+    box.textContent = "กำลังโหลดอันดับ...";
+
+    try {
+      let rows = [];
+
+      if (mode === "current") {
+        title.textContent = "🏆 อันดับเดือนนี้";
+        subtitle.textContent = "G2 Snooker Monthly Points • " + currentMonthKey();
+        rows = await loadCurrentLeaderboard();
+      } else {
+        title.textContent = "🏆 อันดับย้อนหลัง";
+        subtitle.textContent = "G2 Snooker Monthly Points • " + mode;
+        rows = await loadArchivedLeaderboard(mode);
+      }
+
+      render(rows);
+    } catch (e) {
+      console.error(e);
+      box.innerHTML = '<div class="empty" style="color:#ff7070;">โหลดอันดับไม่ได้<br>' + (e.message || e) + '</div>';
+    }
+  }
+
+  async function init() {
+    await loadMonths();
+    await changeMonth();
+  }
+
+  init();
+</script>
+</body>
+</html>

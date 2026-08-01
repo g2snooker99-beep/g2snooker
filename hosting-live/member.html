@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8"/>
+  <title>G2 Member</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="./css/style.css"/>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <style>
+    .member-card{
+      background:rgba(255,255,255,0.07);
+      border-radius:22px;
+      padding:18px;
+      margin-top:16px;
+      text-align:center;
+    }
+    .member-card img{
+      width:86px;
+      height:86px;
+      border-radius:50%;
+      border:4px solid #2de080;
+      object-fit:cover;
+    }
+    .reward-box{
+      margin-top:16px;
+      padding:14px;
+      border-radius:18px;
+      background:rgba(255,209,102,0.10);
+      border:1px solid rgba(255,209,102,0.35);
+      text-align:left;
+    }
+    .reward-item{
+      margin-top:10px;
+      padding:12px;
+      border-radius:14px;
+      background:rgba(0,0,0,0.22);
+      border:1px solid rgba(255,255,255,0.12);
+    }
+    .reward-title{
+      color:#fff;
+      font-weight:900;
+      font-size:15px;
+      margin-bottom:4px;
+    }
+    .reward-meta{
+      color:#9fe8c0;
+      font-size:13px;
+      margin-bottom:4px;
+    }
+    .reward-desc{
+      color:#cfcfcf;
+      font-size:13px;
+      line-height:1.45;
+    }
+    .reward-note{
+      margin-top:10px;
+      color:#ffd166;
+      font-size:13px;
+      text-align:center;
+      font-weight:700;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="card">
+    <h1 style="font-size:22px;text-align:center;">G2 SNOOKER</h1>
+    <p class="sub" style="text-align:center;">Member Card</p>
+
+    <div id="loading" style="text-align:center;padding:30px 0;">กำลังโหลดข้อมูลสมาชิก…</div>
+
+    <div id="content" class="hidden">
+      <div class="member-card">
+        <img id="avatar" src="" alt="profile"/>
+        <h2 id="name" style="margin:10px 0 4px;">–</h2>
+        <p id="memberId" style="color:#9fe8c0;margin:0;">–</p>
+        <p id="points" style="color:#ffd166;font-weight:900;margin:8px 0 0;">แต้มเดือนนี้: –</p>
+      </div>
+
+      <div id="rewardBox" class="reward-box hidden">
+        <p style="color:#ffd166;font-size:15px;font-weight:900;margin:0 0 8px;text-align:center;">🎁 สิทธิ์ของฉัน</p>
+        <div id="rewardList"></div>
+        <p class="reward-note">ให้พนักงานสแกน QR สมาชิกเพื่อใช้สิทธิ์</p>
+      </div>
+
+      <button onclick="window.location.href='./qr.html?refresh=' + Date.now()" style="margin-top:18px;">📱 แสดง QR Code</button>
+      <button class="secondary" onclick="window.location.href='./leaderboard.html'" style="margin-top:10px;">🏆 อันดับเดือนนี้</button>
+      <button class="secondary" onclick="window.location.href='./reward-history.html'" style="margin-top:10px;font-size:14px;padding:12px;">🎁 ประวัติสิทธิ์ / รางวัล</button>
+    </div>
+
+    <div id="error" class="hidden" style="text-align:center;color:#ff7070;padding:20px;"></div>
+  </div>
+</div>
+
+<script src="./js/firebase-config.js"></script>
+<script>
+  const MEMBER_LIFF = "2010084269-aui1GaWz";
+
+  async function init() {
+    await liff.init({ liffId: MEMBER_LIFF });
+
+    if (!liff.isLoggedIn()) {
+      liff.login();
+      return;
+    }
+
+    const profile = await liff.getProfile();
+    const userRef = db.collection("users").doc(profile.userId);
+    const snap = await userRef.get();
+
+    if (!snap.exists) {
+      window.location.href = "./index.html";
+      return;
+    }
+
+    const user = snap.data() || {};
+
+    document.getElementById("avatar").src = user.pictureUrl || user.photoURL || profile.pictureUrl || "";
+    document.getElementById("name").textContent = user.displayName || user.name || profile.displayName || "สมาชิก";
+    document.getElementById("memberId").textContent = "รหัส: " + (user.memberId || profile.userId);
+    document.getElementById("points").textContent = "แต้มเดือนนี้: " + (user.monthlyPoints || 0);
+
+    await loadRewards(profile.userId);
+
+    document.getElementById("loading").classList.add("hidden");
+    document.getElementById("content").classList.remove("hidden");
+  }
+
+  async function loadRewards(userId) {
+    const rewardBox = document.getElementById("rewardBox");
+    const rewardList = document.getElementById("rewardList");
+
+    rewardBox.classList.add("hidden");
+    rewardList.innerHTML = "";
+
+    try {
+      const snap = await db.collection("monthlyRewards")
+        .where("userId", "==", userId)
+        .where("status", "==", "active")
+        .get();
+
+      if (snap.empty) {
+        return;
+      }
+
+      const rewards = [];
+      snap.forEach(doc => {
+        rewards.push({ id: doc.id, ...doc.data() });
+      });
+
+      rewards.sort((a, b) => {
+        if (a.rewardType === "ranking_shirt" && b.rewardType !== "ranking_shirt") return -1;
+        if (a.rewardType !== "ranking_shirt" && b.rewardType === "ranking_shirt") return 1;
+        return String(a.rewardId || a.id).localeCompare(String(b.rewardId || b.id));
+      });
+
+      rewards.forEach(r => {
+        const isShirt = r.rewardType === "ranking_shirt";
+        const title = isShirt ? (r.title || "เสื้อ Ranking") : (r.title || "ส่วนลดค่าชั่วโมง 10%");
+        const desc = r.description || (isShirt ? "รับเสื้อ Ranking ที่ร้าน" : "ใช้ได้ 1 บิล");
+        const rankText = r.rank ? "Top " + r.rank + " • " : "";
+
+        const div = document.createElement("div");
+        div.className = "reward-item";
+        div.innerHTML = `
+          <div class="reward-title">${rankText}${title}</div>
+          <div class="reward-meta">เดือน ${r.monthKey || "-"} • ${r.points || 0} แต้ม</div>
+          <div class="reward-desc">${desc}</div>
+          <div class="reward-desc" style="color:#ffd166;margin-top:6px;">สถานะ: ยังไม่ได้ใช้</div>
+        `;
+        rewardList.appendChild(div);
+      });
+
+      rewardBox.classList.remove("hidden");
+    } catch (e) {
+      console.error("loadRewards failed", e);
+    }
+  }
+
+  init().catch(e => {
+    document.getElementById("loading").classList.add("hidden");
+    const err = document.getElementById("error");
+    err.textContent = "เกิดข้อผิดพลาด: " + (e.message || e);
+    err.classList.remove("hidden");
+  });
+</script>
+</body>
+</html>

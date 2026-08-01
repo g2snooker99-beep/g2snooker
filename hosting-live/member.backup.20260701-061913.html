@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8"/>
+  <title>G2 Member</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="./css/style.css"/>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+<div class="page">
+  <div class="member-card">
+    <div class="top">
+      <div>
+        <h1 style="font-size:20px;margin:0;">G2 SNOOKER</h1>
+        <p style="margin:4px 0 0;color:#9fe8c0;font-size:13px;">LINE Member</p>
+      </div>
+      <div id="rankBadge">–</div>
+    </div>
+    <div id="loading" style="text-align:center;padding:40px 0;">กำลังโหลด…</div>
+    <div id="content" class="hidden">
+      <div class="profile">
+        <img id="avatar" class="avatar"/>
+        <div>
+          <h2 id="displayName" style="margin:0;"></h2>
+          <p id="memberId" style="margin:4px 0 0;color:#9fe8c0;font-size:13px;"></p>
+        </div>
+      </div>
+      <div class="stats">
+        <div><b id="monthlyPoints">0</b><span>แต้มเดือนนี้</span></div>
+        <div><b id="lifetimeHours">0</b><span>ชั่วโมงสะสม</span></div>
+      </div>
+      <button onclick="window.location.href='./qr.html?refresh=' + Date.now()" style="margin-top:18px;">📱 แสดง QR Code</button>
+      <button class="secondary" onclick="window.location.href='./leaderboard.html'" style="margin-top:10px;">🏆 อันดับเดือนนี้</button>
+    </div>
+  </div>
+</div>
+<script src="./js/firebase-config.js"></script>
+<script>
+  const MEMBER_LIFF = "2010084269-aui1GaWz";
+  async function init() {
+    await liff.init({ liffId: MEMBER_LIFF });
+    if (!liff.isLoggedIn()) { liff.login(); return; }
+    const profile = await liff.getProfile();
+    db.collection("users").doc(profile.userId).onSnapshot(snap => {
+      if (!snap.exists) { window.location.href = "./index.html"; return; }
+      const d = snap.data();
+      document.getElementById("loading").classList.add("hidden");
+      document.getElementById("content").classList.remove("hidden");
+      document.getElementById("avatar").src               = d.pictureUrl || "";
+      document.getElementById("displayName").textContent  = d.nickname || d.displayName;
+      document.getElementById("memberId").textContent     = "รหัสสมาชิก: " + (d.memberId || "");
+      document.getElementById("monthlyPoints").textContent = d.monthlyPoints || 0;
+      document.getElementById("lifetimeHours").textContent = (d.lifetimeHours || 0) + " h";
+      document.getElementById("rankBadge").textContent    = d.currentRank || "Rookie";
+    }, err => console.error(err));
+  }
+  init().catch(e => { console.error(e); alert("เกิดข้อผิดพลาด"); });
+</script>
+</body>
+</html>

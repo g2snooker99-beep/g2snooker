@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8"/>
+  <title>G2 Staff – เพิ่มแต้ม</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="./css/style.css"/>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-functions-compat.js"></script>
+  <style>
+    .pt-btn{padding:18px 0;border-radius:16px;border:none;background:rgba(45,224,128,0.14);color:#48f08d;font-size:22px;font-weight:900;cursor:pointer;transition:background .15s,transform .12s;}
+    .pt-btn:active{transform:scale(0.92);}
+    .pt-btn:hover{background:rgba(45,224,128,0.28);}
+    .pt-btn:disabled{opacity:.4;pointer-events:none;}
+    #memberCard{display:flex;gap:14px;align-items:center;background:rgba(255,255,255,0.07);border-radius:20px;padding:16px;margin:14px 0;}
+    #memberCard .info p{margin:3px 0;font-size:13px;color:#9fe8c0;}
+    #successMsg{margin-top:12px;padding:14px;border-radius:16px;background:rgba(45,224,128,0.15);color:#b9ffd4;font-weight:700;display:none;font-size:15px;}
+    #rewardBox{margin-top:16px;padding:14px;border-radius:18px;background:rgba(255,209,102,0.10);border:1px solid rgba(255,209,102,0.35);}
+    .reward-item{padding:12px;border-radius:14px;background:rgba(0,0,0,0.22);border:1px solid rgba(255,255,255,0.12);}
+    .reward-title{font-weight:900;color:#fff;margin-bottom:4px;}
+    .reward-meta{color:#9fe8c0;font-size:13px;margin-bottom:4px;}
+    .reward-desc{color:#cfcfcf;font-size:13px;margin-bottom:10px;}
+    .reward-use-btn{background:#ffd166!important;color:#111!important;font-weight:900!important;}
+  </style>
+</head>
+<body>
+<div class="page"><div class="card">
+  <h1 style="font-size:20px;text-align:center;">G2 SNOOKER</h1>
+  <p class="sub" style="text-align:center;">Staff – เพิ่มแต้มสมาชิก</p>
+  <p id="staffRoleDebug" style="text-align:center;color:#9ec5ff;font-size:13px;margin-top:-6px;"></p>
+
+  <div id="loading" style="text-align:center;padding:30px 0;">กำลังโหลด…</div>
+  <div id="accessDenied" class="hidden" style="text-align:center;color:#ff7070;padding:20px;">⛔ คุณไม่มีสิทธิ์เข้าถึงหน้านี้</div>
+
+  <div id="content" class="hidden">
+    <div id="searchBox">
+      <p style="color:#9fe8c0;font-size:14px;margin:0 0 8px;">ป้อน qrToken หรือรหัสสมาชิก</p>
+      <input id="tokenInput" placeholder="วางหรือพิมพ์รหัสที่นี่" style="margin-top:0;"/>
+      <button onclick="lookupMember()">🔍 ค้นหาสมาชิก</button>
+      <button class="secondary" onclick="window.location.href='./staff-scan.html'" style="margin-top:8px;">📷 สแกน QR แทน</button>
+    </div>
+
+    <div id="adminGlobalBox" class="hidden" style="margin-top:16px;padding:14px;border-radius:18px;background:rgba(120,170,255,0.10);border:1px solid rgba(120,170,255,0.35);">
+      <p style="color:#9ec5ff;font-size:15px;font-weight:900;margin:0 0 8px;">🧪 โหมดแอดมิน</p>
+      <p style="color:#cfcfcf;font-size:13px;margin:0 0 10px;">ใช้สำหรับสร้างสิทธิ์รางวัลให้ลูกค้าทั้งหมดจากแต้มปัจจุบัน</p>
+      <button onclick="createMonthlyRewardsForAllMembers()" style="background:#ff9f1c;color:#111;font-weight:900;margin-top:8px;">
+        🚀 สร้างสิทธิ์ให้ลูกค้าทุกคนจากแต้มปัจจุบัน
+      </button>
+    </div>
+
+    <div id="memberCard" class="hidden">
+      <img id="mAvatar" class="avatar" style="width:54px;height:54px;flex-shrink:0;"/>
+      <div class="info">
+        <b id="mName">–</b>
+        <p id="mMemberId">–</p>
+        <p id="mCurrentPoints" style="color:#ffd166;font-weight:700;">แต้มเดือนนี้: –</p>
+      </div>
+    </div>
+
+    <div id="pointButtons" class="hidden">
+      <p style="color:#9fe8c0;font-size:14px;margin:4px 0 10px;">เลือกจำนวนแต้มที่จะเพิ่ม</p>
+      <div class="point-buttons">
+        <button class="pt-btn" onclick="addPoints(1)">+1</button>
+        <button class="pt-btn" onclick="addPoints(2)">+2</button>
+        <button class="pt-btn" onclick="addPoints(3)">+3</button>
+        <button class="pt-btn" onclick="addPoints(5)">+5</button>
+        <button class="pt-btn" onclick="addPoints(10)">+10</button>
+        <button class="pt-btn" onclick="addPoints(15)">+15</button>
+        <button class="pt-btn" onclick="addPoints(20)">+20</button>
+        <button class="pt-btn" onclick="addPoints(30)">+30</button>
+      </div>
+
+      <div id="successMsg"></div>
+
+      <div id="rewardBox" class="hidden">
+        <p style="color:#ffd166;font-size:15px;font-weight:900;margin:0 0 8px;">🎁 สิทธิ์รางวัลของลูกค้า</p>
+        <div id="rewardList" style="display:grid;gap:10px;"></div>
+      </div>
+
+      <div id="adminTestBox" class="hidden" style="margin-top:16px;padding:14px;border-radius:18px;background:rgba(120,170,255,0.10);border:1px solid rgba(120,170,255,0.35);">
+        <p style="color:#9ec5ff;font-size:15px;font-weight:900;margin:0 0 8px;">🧪 โหมดทดสอบแอดมิน</p>
+        <p style="color:#cfcfcf;font-size:13px;margin:0 0 10px;">ใช้สำหรับสร้างสิทธิ์ให้ลูกค้าคนนี้ไว้ทดสอบรับรางวัล / ตัดสิทธิ์ / หักแต้ม</p>
+
+        <button onclick="createTestReward('ranking_shirt')" style="background:#ffd166;color:#111;font-weight:900;margin-top:8px;">
+          🏆 สร้างสิทธิ์ทดสอบเสื้อ Ranking
+        </button>
+
+        <button onclick="createTestReward('discount_10')" style="background:#2de080;color:#06170d;font-weight:900;margin-top:8px;">
+          🎟️ สร้างสิทธิ์ทดสอบส่วนลด 10%
+        </button>
+
+        <p style="color:#ffb3b3;font-size:13px;margin:14px 0 8px;">หักแต้มทดสอบ</p>
+        <div class="point-buttons">
+          <button class="pt-btn" onclick="cutPoints(1)" style="color:#ff7070;background:rgba(255,80,80,0.14);">-1</button>
+          <button class="pt-btn" onclick="cutPoints(5)" style="color:#ff7070;background:rgba(255,80,80,0.14);">-5</button>
+          <button class="pt-btn" onclick="cutPoints(10)" style="color:#ff7070;background:rgba(255,80,80,0.14);">-10</button>
+        </div>
+      </div>
+
+      <button class="secondary" onclick="resetForm()" style="margin-top:12px;">🔄 เพิ่มให้สมาชิกคนอื่น</button>
+    </div>
+  </div>
+</div></div>
+
+<script src="./js/firebase-config.js"></script>
+<script>
+  const STAFF_LIFF = "2010084269-Mv2yEosd";
+  const cloudFunctions = firebase.app().functions("asia-southeast1");
+  const sendPointNotification = cloudFunctions.httpsCallable("sendPointNotification");
+
+  let staffProfile = null;
+  let staffRole = null;
+  let memberDocId = null;
+  let memberData = null;
+
+  async function init() {
+    await liff.init({ liffId: STAFF_LIFF });
+
+    if (!liff.isLoggedIn()) {
+      liff.login();
+      return;
+    }
+
+    staffProfile = await liff.getProfile();
+
+    const staffSnap = await db.collection("users").doc(staffProfile.userId).get();
+    staffRole = staffSnap.exists ? staffSnap.data().role : null;
+    const roleDebug = document.getElementById("staffRoleDebug");
+    if (roleDebug) roleDebug.textContent = "Role: " + (staffRole || "-");
+
+    if (!staffSnap.exists || !["staff", "admin"].includes(staffRole)) {
+      document.getElementById("loading").classList.add("hidden");
+      document.getElementById("accessDenied").classList.remove("hidden");
+      return;
+    }
+
+    document.getElementById("loading").classList.add("hidden");
+    document.getElementById("content").classList.remove("hidden");
+
+    if (staffRole === "admin") {
+      const adminGlobalBox = document.getElementById("adminGlobalBox");
+      if (adminGlobalBox) adminGlobalBox.classList.remove("hidden");
+    }
+
+    const qrToken = new URLSearchParams(window.location.search).get("qrToken");
+    if (qrToken) {
+      document.getElementById("tokenInput").value = qrToken;
+      await lookupMember();
+    }
+  }
+
+  async function lookupMember() {
+    const token = document.getElementById("tokenInput").value.trim();
+    if (!token) {
+      alert("กรุณากรอก qrToken หรือรหัสสมาชิก");
+      return;
+    }
+
+    let snap = await db.collection("users").where("qrToken", "==", token).limit(1).get();
+
+    if (snap.empty) {
+      snap = await db.collection("users").where("memberId", "==", token).limit(1).get();
+    }
+
+    if (snap.empty) {
+      alert("ไม่พบสมาชิก");
+      return;
+    }
+
+    const doc = snap.docs[0];
+    memberDocId = doc.id;
+    memberData = doc.data();
+
+    document.getElementById("mAvatar").src = memberData.pictureUrl || memberData.photoURL || "";
+    document.getElementById("mName").textContent = memberData.displayName || memberData.name || "สมาชิก";
+    document.getElementById("mMemberId").textContent = "รหัส: " + (memberData.memberId || memberDocId);
+    document.getElementById("mCurrentPoints").textContent = "แต้มเดือนนี้: " + (memberData.monthlyPoints || 0);
+
+    document.getElementById("memberCard").classList.remove("hidden");
+    document.getElementById("pointButtons").classList.remove("hidden");
+
+    await loadMemberRewards();
+
+    if (staffRole === "admin") {
+      document.getElementById("adminTestBox").classList.remove("hidden");
+    } else {
+      document.getElementById("adminTestBox").classList.add("hidden");
+    }
+  }
+
+  async function addPoints(amount) {
+    if (!memberDocId || !memberData) return;
+
+    const buttons = document.querySelectorAll("button");
+    buttons.forEach(b => b.disabled = true);
+
+    try {
+      await db.collection("users").doc(memberDocId).update({
+        monthlyPoints: firebase.firestore.FieldValue.increment(amount),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      await db.collection("pointTransactions").add({
+        userId: memberDocId,
+        staffId: staffProfile.userId,
+        points: amount,
+        type: "add",
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      try {
+        await sendPointNotification({
+          userId: memberDocId,
+          points: amount,
+          staffId: staffProfile.userId
+        });
+      } catch (e) {
+        console.warn("sendPointNotification failed", e);
+      }
+
+      memberData.monthlyPoints = (memberData.monthlyPoints || 0) + amount;
+      document.getElementById("mCurrentPoints").textContent = "แต้มเดือนนี้: " + memberData.monthlyPoints;
+
+      const msg = document.getElementById("successMsg");
+      msg.style.display = "block";
+      msg.textContent = "✅ เพิ่ม +" + amount + " แต้มสำเร็จ!  รวม " + memberData.monthlyPoints + " แต้ม";
+    } catch (e) {
+      alert("เพิ่มแต้มไม่สำเร็จ: " + (e.message || e));
+    } finally {
+      buttons.forEach(b => b.disabled = false);
+    }
+  }
+
+  async function loadMemberRewards() {
+    const rewardBox = document.getElementById("rewardBox");
+    const rewardList = document.getElementById("rewardList");
+
+    rewardBox.classList.add("hidden");
+    rewardList.innerHTML = "";
+
+    if (!memberDocId) return;
+
+    try {
+      const snap = await db.collection("monthlyRewards")
+        .where("userId", "==", memberDocId)
+        .where("status", "==", "active")
+        .get();
+
+      if (snap.empty) {
+        rewardList.innerHTML = '<p style="margin:0;color:#9fe8c0;font-size:13px;">ไม่มีสิทธิ์ที่ใช้งานได้</p>';
+        rewardBox.classList.remove("hidden");
+        return;
+      }
+
+      snap.forEach(doc => {
+        const r = doc.data() || {};
+        const isShirt = r.rewardType === "ranking_shirt";
+        const title = isShirt ? (r.title || "เสื้อ Ranking") : (r.title || "ส่วนลดค่าชั่วโมง 10%");
+        const desc = r.description || (isShirt ? "รับเสื้อ Ranking ที่ร้าน" : "ใช้ได้ 1 บิล");
+        const rankText = r.rank ? "Top " + r.rank + " • " : "";
+
+        const div = document.createElement("div");
+        div.className = "reward-item";
+        div.innerHTML = `
+          <div class="reward-title">${rankText}${title}</div>
+          <div class="reward-meta">เดือน ${r.monthKey || "-"} • ${r.points || 0} แต้ม</div>
+          <div class="reward-desc">${desc}</div>
+          <button class="reward-use-btn" onclick="useMonthlyReward('${doc.id}')">✅ ใช้สิทธิ์นี้</button>
+        `;
+        rewardList.appendChild(div);
+      });
+
+      rewardBox.classList.remove("hidden");
+    } catch (e) {
+      rewardList.innerHTML = '<p style="margin:0;color:#ff7070;font-size:13px;">โหลดสิทธิ์ไม่ได้: ' + (e.message || e) + '</p>';
+      rewardBox.classList.remove("hidden");
+    }
+  }
+
+  async function useMonthlyReward(rewardId) {
+    if (!confirm("ยืนยันใช้สิทธิ์นี้? หลังใช้แล้วจะใช้ซ้ำไม่ได้")) return;
+
+    const buttons = document.querySelectorAll("button");
+    buttons.forEach(b => b.disabled = true);
+
+    try {
+      const rewardRef = db.collection("monthlyRewards").doc(rewardId);
+      const rewardSnap = await rewardRef.get();
+
+      if (!rewardSnap.exists) {
+        alert("❌ ไม่พบสิทธิ์นี้");
+        return;
+      }
+
+      const reward = rewardSnap.data() || {};
+
+      if (reward.status !== "active") {
+        alert("❌ สิทธิ์นี้ถูกใช้ไปแล้ว");
+        await loadMemberRewards();
+        return;
+      }
+
+      await rewardRef.update({
+        status: "used",
+        usedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        usedBy: staffProfile.userId,
+        usedByName: staffProfile.displayName || "",
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      await db.collection("rewardRedemptions").add({
+        rewardId,
+        userId: memberDocId,
+        staffId: staffProfile.userId,
+        staffName: staffProfile.displayName || "",
+        rewardType: reward.rewardType || "",
+        title: reward.title || "",
+        points: reward.points || 0,
+        monthKey: reward.monthKey || "",
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      alert("✅ ใช้สิทธิ์สำเร็จ");
+      await loadMemberRewards();
+    } catch (e) {
+      alert("❌ ใช้สิทธิ์ไม่สำเร็จ: " + (e.message || e));
+    } finally {
+      buttons.forEach(b => b.disabled = false);
+    }
+  }
+
+  async function createTestReward(type) {
+    if (staffRole !== "admin") {
+      alert("เฉพาะแอดมินเท่านั้น");
+      return;
+    }
+
+    if (!memberDocId || !memberData) {
+      alert("ยังไม่ได้เลือกสมาชิก");
+      return;
+    }
+
+    const buttons = document.querySelectorAll("button");
+    buttons.forEach(b => b.disabled = true);
+
+    try {
+      const now = new Date();
+      const monthKey = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+      const rewardId = monthKey + "_" + memberDocId + "_" + type + "_test_" + Date.now();
+
+      let reward = {
+        rewardId,
+        userId: memberDocId,
+        monthKey,
+        rewardType: type,
+        points: Number(memberData.monthlyPoints || 0),
+        status: "active",
+        usedAt: null,
+        usedBy: null,
+        isTest: true,
+        createdBy: staffProfile.userId,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+
+      if (type === "ranking_shirt") {
+        reward.rank = 1;
+        reward.title = "ทดสอบสิทธิ์เสื้อ Ranking";
+        reward.description = "สิทธิ์ทดสอบสำหรับแอดมิน";
+      } else {
+        reward.rank = null;
+        reward.title = "ทดสอบส่วนลดค่าชั่วโมง 10%";
+        reward.description = "ใช้ได้ 1 บิล สำหรับทดสอบระบบ";
+      }
+
+      await db.collection("monthlyRewards").doc(rewardId).set(reward);
+
+      alert("✅ สร้างสิทธิ์ทดสอบสำเร็จ");
+      await loadMemberRewards();
+    } catch (e) {
+      alert("❌ สร้างสิทธิ์ไม่สำเร็จ: " + (e.message || e));
+    } finally {
+      buttons.forEach(b => b.disabled = false);
+    }
+  }
+
+  async function createMonthlyRewardsForAllMembers() {
+    if (staffRole !== "admin") {
+      alert("เฉพาะแอดมินเท่านั้น");
+      return;
+    }
+
+    if (!confirm("ยืนยันสร้างสิทธิ์ให้ลูกค้าทุกคนจากแต้มปัจจุบัน?\\n\\nTop 1-3 ได้เสื้อ Ranking\\nคนอื่นที่มี 15 แต้มขึ้นไปได้ส่วนลด 10%\\nระบบจะข้ามคนที่มีสิทธิ์อยู่แล้ว")) {
+      return;
+    }
+
+    const buttons = document.querySelectorAll("button");
+    buttons.forEach(b => b.disabled = true);
+
+    try {
+      const now = new Date();
+      const monthKey = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+
+      const usersSnap = await db.collection("users").get();
+
+      let members = [];
+
+      usersSnap.forEach(doc => {
+        const u = doc.data() || {};
+        const role = u.role || "member";
+        const points = Number(u.monthlyPoints || 0);
+
+        if (role === "staff" || role === "admin") return;
+        if (!Number.isFinite(points) || points <= 0) return;
+
+        members.push({
+          id: doc.id,
+          data: u,
+          points
+        });
+      });
+
+      members.sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+
+        const aTime = a.data.createdAt && a.data.createdAt.toMillis ? a.data.createdAt.toMillis() : 0;
+        const bTime = b.data.createdAt && b.data.createdAt.toMillis ? b.data.createdAt.toMillis() : 0;
+
+        return aTime - bTime;
+      });
+
+      const top3 = members.slice(0, 3);
+      const top3Ids = new Set(top3.map(m => m.id));
+
+      const rewardPlans = [];
+
+      top3.forEach((m, index) => {
+        const rank = index + 1;
+        const rewardId = monthKey + "_" + m.id + "_top" + rank + "_manual";
+
+        rewardPlans.push({
+          rewardId,
+          userId: m.id,
+          monthKey,
+          rewardType: "ranking_shirt",
+          rank,
+          points: m.points,
+          title: "Top " + rank + " เสื้อ Ranking",
+          description:
+            rank === 1 ? "อันดับ 1 รับเสื้อ Ranking สีทอง" :
+            rank === 2 ? "อันดับ 2 รับเสื้อ Ranking สีแดง" :
+            "อันดับ 3 รับเสื้อ Ranking สีเขียว",
+          status: "active",
+          usedAt: null,
+          usedBy: null,
+          createdBy: staffProfile.userId,
+          createdMode: "manual_bulk_from_current_points",
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      });
+
+      members.forEach(m => {
+        if (top3Ids.has(m.id)) return;
+        if (m.points < 15) return;
+
+        const rewardId = monthKey + "_" + m.id + "_discount10_manual";
+
+        rewardPlans.push({
+          rewardId,
+          userId: m.id,
+          monthKey,
+          rewardType: "discount_10",
+          rank: null,
+          points: m.points,
+          title: "ส่วนลดค่าชั่วโมง 10%",
+          description: "ใช้ได้ 1 บิล จากแต้มสะสม 15 แต้มขึ้นไป",
+          status: "active",
+          usedAt: null,
+          usedBy: null,
+          createdBy: staffProfile.userId,
+          createdMode: "manual_bulk_from_current_points",
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      });
+
+      let created = 0;
+      let skipped = 0;
+      let checked = 0;
+      let batch = db.batch();
+
+      for (const reward of rewardPlans) {
+        const ref = db.collection("monthlyRewards").doc(reward.rewardId);
+        const exists = await ref.get();
+
+        if (exists.exists) {
+          skipped++;
+          continue;
+        }
+
+        batch.set(ref, reward);
+        created++;
+        checked++;
+
+        if (checked >= 400) {
+          await batch.commit();
+          batch = db.batch();
+          checked = 0;
+        }
+      }
+
+      if (checked > 0) {
+        await batch.commit();
+      }
+
+      alert(
+        "✅ สร้างสิทธิ์เรียบร้อย\\n\\n" +
+        "ลูกค้าที่มีแต้ม: " + members.length + " คน\\n" +
+        "สิทธิ์ที่ควรสร้าง: " + rewardPlans.length + " สิทธิ์\\n" +
+        "สร้างใหม่: " + created + " สิทธิ์\\n" +
+        "ข้ามสิทธิ์เดิม: " + skipped + " สิทธิ์"
+      );
+
+      await loadMemberRewards();
+
+    } catch (e) {
+      alert("❌ สร้างสิทธิ์รวมไม่สำเร็จ: " + (e.message || e));
+    } finally {
+      buttons.forEach(b => b.disabled = false);
+    }
+  }
+
+  async function cutPoints(amount) {
+    if (staffRole !== "admin") {
+      alert("เฉพาะแอดมินเท่านั้น");
+      return;
+    }
+
+    if (!memberDocId || !memberData) {
+      alert("ยังไม่ได้เลือกสมาชิก");
+      return;
+    }
+
+    if (!confirm("ยืนยันหักแต้ม -" + amount + " แต้ม?")) return;
+
+    const buttons = document.querySelectorAll("button");
+    buttons.forEach(b => b.disabled = true);
+
+    try {
+      await db.collection("users").doc(memberDocId).update({
+        monthlyPoints: firebase.firestore.FieldValue.increment(-amount),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      await db.collection("pointTransactions").add({
+        userId: memberDocId,
+        staffId: staffProfile.userId,
+        points: -amount,
+        type: "admin_cut",
+        note: "admin test cut points",
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      memberData.monthlyPoints = Number(memberData.monthlyPoints || 0) - amount;
+      document.getElementById("mCurrentPoints").textContent = "แต้มเดือนนี้: " + memberData.monthlyPoints;
+
+      alert("✅ หักแต้ม -" + amount + " สำเร็จ");
+      await loadMemberRewards();
+    } catch (e) {
+      alert("❌ หักแต้มไม่สำเร็จ: " + (e.message || e));
+    } finally {
+      buttons.forEach(b => b.disabled = false);
+    }
+  }
+
+  function resetForm() {
+    memberDocId = null;
+    memberData = null;
+
+    document.getElementById("tokenInput").value = "";
+    document.getElementById("memberCard").classList.add("hidden");
+    document.getElementById("pointButtons").classList.add("hidden");
+    document.getElementById("rewardBox").classList.add("hidden");
+    document.getElementById("rewardList").innerHTML = "";
+    document.getElementById("adminTestBox").classList.add("hidden");
+    document.getElementById("successMsg").style.display = "none";
+  }
+
+  init().catch(e => {
+    document.getElementById("loading").textContent = "เกิดข้อผิดพลาด: " + (e.message || e);
+  });
+</script>
+</body>
+</html>
