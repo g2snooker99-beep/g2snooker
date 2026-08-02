@@ -2073,7 +2073,7 @@ async function loadBills(){
   const prm=new URLSearchParams();if(date)prm.append('date',date);if(table)prm.append('table',table);
   const r=await fetch('/api/bills?'+prm.toString());currentBills=await r.json();
   document.getElementById('bill-table-body').innerHTML=currentBills.map(b=>
-    `<tr><td class="text-warning">${b.bill_no}</td><td>${b.table_name}</td><td>${(b.end_time||'').substr(11,5)}</td>
+    `<tr><td class="text-warning">${b.bill_no}</td><td>${b.table_name}</td><td>${toThaiHHMM(b.end_time)}</td>
      <td>${(b.time_fee||0).toFixed(2)}</td><td>${(b.food_fee||0).toFixed(2)}</td>
      <td class="text-info fw-bold">${(b.total||0).toFixed(2)}</td>
      <td class="text-muted small">${b.cashier||''}</td>
@@ -2084,7 +2084,7 @@ async function viewBillDetails(bid){
   const r=await fetch(`/api/bills/${bid}`);const d=await r.json();
   const bill=d.bill;const items=d.items;
   currentViewingBill={...bill,orders:items.map(i=>({name:i.name,qty:i.qty,price:i.price,total_price:i.total}))};
-  document.getElementById('bill-detail-meta').innerText=`${bill.table_name} | ${(bill.end_time||'').substr(0,16)} | ${bill.cashier}`;
+  document.getElementById('bill-detail-meta').innerText=`${bill.table_name} | ${toThaiDateTimeStr(bill.end_time)} | ${bill.cashier}`;
   let html='';
   if((bill.time_fee||0)>0)html+=`<tr><td class="text-warning">ค่าโต๊ะสนุ๊ก</td><td>1</td><td>${(bill.time_fee||0).toFixed(2)}</td><td class="text-warning">${(bill.time_fee||0).toFixed(2)}</td></tr>`;
   html+=items.map(i=>`<tr><td>${i.name}</td><td>${i.qty}</td><td>${i.price} ฿</td><td class="text-info">${i.total} ฿</td></tr>`).join('');
@@ -2106,6 +2106,23 @@ function exportReportCSV(){
   const r=currentReportBills.map(b=>[(b.created_at||'').substr(11,5),b.bill_no,b.table_name,b.time_fee,b.food_fee,b.total]);
   dlCSV(h,r,`report_${Date.now()}.csv`);
 }
+// ─── TIMEZONE HELPER (แปลง UTC ดิบจาก backend ให้เป็นเวลาไทยตอนแสดงผล) ──
+function toThaiHHMM(isoStr){
+  if(!isoStr) return '-';
+  const s = isoStr.endsWith('Z') ? isoStr : isoStr+'Z';
+  const d = new Date(s);
+  if(isNaN(d.getTime())) return '-';
+  return d.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',hour12:false});
+}
+function toThaiDateTimeStr(isoStr){
+  if(!isoStr) return '-';
+  const s = isoStr.endsWith('Z') ? isoStr : isoStr+'Z';
+  const d = new Date(s);
+  if(isNaN(d.getTime())) return '-';
+  const pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function dlCSV(h,r,fn){
   const csv=[h.join(','),...r.map(row=>row.map(v=>`"${v||''}"`).join(','))].join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));
@@ -2246,7 +2263,7 @@ async function deleteProduct(id, name){
 async function loadExpenses(){
   const r=await fetch('/api/expenses');const d=await r.json();
   document.getElementById('exp-table-body').innerHTML=d.map(e=>
-    `<tr><td>${(e.created_at||'').substr(11,5)}</td><td>${e.category}</td><td>${e.note}</td><td class="text-danger fw-bold">${e.amount}</td><td>${e.created_by}</td></tr>`
+    `<tr><td>${toThaiHHMM(e.created_at)}</td><td>${e.category}</td><td>${e.note}</td><td class="text-danger fw-bold">${e.amount}</td><td>${e.created_by}</td></tr>`
   ).join('');
 }
 async function addExpense(){
@@ -2274,7 +2291,7 @@ async function loadReport(){
     data:{labels:['ยอดขาย','รายจ่าย','สุทธิ'],datasets:[{label:'รอบกะนี้',data:[d.sales,d.expenses,d.net],backgroundColor:['#10b981','#ef4444','#0ea5e9']}]},
     options:{plugins:{legend:{display:false}},scales:{y:{grid:{color:'#334155'},ticks:{color:'#94a3b8'}}}}});
   document.getElementById('daily-report-body').innerHTML=currentReportBills.map(b=>
-    `<tr><td>${(b.created_at||'').substr(11,5)}</td><td class="text-warning">${b.bill_no}</td><td>${b.table_name}</td>
+    `<tr><td>${toThaiHHMM(b.created_at)}</td><td class="text-warning">${b.bill_no}</td><td>${b.table_name}</td>
      <td>${(b.time_fee||0).toFixed(2)}</td><td>${b.food_fee||0}</td><td class="text-info fw-bold">${(b.total||0).toFixed(2)}</td></tr>`
   ).join('');
 }
@@ -2371,7 +2388,7 @@ async function loadStartingCashHistory(){
   const d = await r.json();
   const el = document.getElementById('starting-cash-hist-body');
   if(el) el.innerHTML = d.map(h=>`<tr>
-    <td class="text-muted small">${(h.created_at||'').replace('T',' ').substr(0,16)}</td>
+    <td class="text-muted small">${toThaiDateTimeStr(h.created_at)}</td>
     <td class="text-success fw-bold">${parseFloat(h.amount).toLocaleString()} ฿</td>
     <td class="text-info">${h.cashier||'-'}</td>
   </tr>`).join('') || '<tr><td colspan="3" class="text-muted text-center">ยังไม่มีประวัติ</td></tr>';
@@ -3095,7 +3112,7 @@ function renderCancelLogs(){
     : allCancelLogs.filter(l=>l.log_type===currentCancelFilter);
   document.getElementById('cancel-log-body').innerHTML=filtered.length
     ?filtered.map(l=>`<tr>
-      <td class="text-muted small">${(l.created_at||'').replace('T',' ').substr(0,16)}</td>
+      <td class="text-muted small">${toThaiDateTimeStr(l.created_at)}</td>
       <td><span class="badge ${TYPE_BADGE[l.log_type]||'bg-secondary'}">${l.log_type||'-'}</span></td>
       <td class="text-info">${l.table_name||'-'}</td>
       <td class="text-start small">${l.detail||'-'}</td>
@@ -3138,7 +3155,7 @@ function renderActivityLogs(){
   const filtered = !filterList ? allActivityLogs : allActivityLogs.filter(l=>filterList.includes(l.action_type));
   document.getElementById('activity-log-body').innerHTML=filtered.length
     ?filtered.map(l=>`<tr>
-      <td class="text-muted small">${(l.created_at||'').replace('T',' ').substr(0,16)}</td>
+      <td class="text-muted small">${toThaiDateTimeStr(l.created_at)}</td>
       <td><span class="badge" style="background:${TYPE_COLOR[l.action_type]||'#64748b'};color:#fff">${l.action_type||'-'}</span></td>
       <td class="text-info">${l.table_name||'-'}</td>
       <td class="text-start small">${l.detail||'-'}</td>
@@ -3739,7 +3756,7 @@ async function openShiftModal(){
   document.getElementById('shift-bill-count').innerText = bills.length;
   document.getElementById('shift-bills-body').innerHTML = bills.map(b =>
     `<tr><td class="text-warning">${b.bill_no||'-'}</td><td>${b.table_name||'-'}</td>
-     <td>${(b.created_at||'').substr(11,5)}</td>
+     <td>${toThaiHHMM(b.created_at)}</td>
      <td>${(b.time_fee||0).toFixed(2)}</td>
      <td>${(b.food_fee||0).toFixed(2)}</td>
      <td class="text-info fw-bold">${(b.total||0).toFixed(2)}</td>
@@ -3747,7 +3764,7 @@ async function openShiftModal(){
   ).join('') || '<tr><td colspan="7" class="text-muted">ไม่มีบิล</td></tr>';
   document.getElementById('shift-exp-count').innerText = exps.length;
   document.getElementById('shift-exp-body').innerHTML = exps.map(e =>
-    `<tr><td>${(e.created_at||'').substr(11,5)}</td><td>${e.category||'-'}</td>
+    `<tr><td>${toThaiHHMM(e.created_at)}</td><td>${e.category||'-'}</td>
      <td>${e.note||'-'}</td><td class="text-danger">${e.amount} ฿</td></tr>`
   ).join('') || '<tr><td colspan="4" class="text-muted">ไม่มีรายจ่าย</td></tr>';
   const _sc = localStorage.getItem('exc_total_cash');
@@ -3826,7 +3843,7 @@ async function confirmExchange(){
 async function loadExchangeHistory(){
   document.getElementById('exc-main-view').style.display='none';document.getElementById('exc-history-view').style.display='block';
   const r=await fetch('/api/exchange');const d=await r.json();
-  document.getElementById('exc-hist-body').innerHTML=d.map(h=>`<tr><td>${(h.created_at||'').substr(11,5)}</td><td class="text-warning">${h.total_amount} ฿</td><td class="small">${h.cashier}</td></tr>`).join('');
+  document.getElementById('exc-hist-body').innerHTML=d.map(h=>`<tr><td>${toThaiHHMM(h.created_at)}</td><td class="text-warning">${h.total_amount} ฿</td><td class="small">${h.cashier}</td></tr>`).join('');
 }
 
 setInterval(()=>document.getElementById('clock').innerText=new Date().toLocaleTimeString('th-TH'),1000);
