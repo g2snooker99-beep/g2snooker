@@ -835,7 +835,7 @@ def checkout():
 # ── ORDERS ───────────────────────────────────────────────────
 @app.route("/api/menu")
 def get_menu():
-    return jsonify([dict(i) for i in get_db_connection().execute("SELECT * FROM inventory").fetchall()])
+    return jsonify([dict(i) for i in get_db_connection().execute("SELECT * FROM inventory ORDER BY id").fetchall()])
 
 @app.route("/api/order/add", methods=["POST"])
 def add_order():

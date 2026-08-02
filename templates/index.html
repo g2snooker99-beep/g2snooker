@@ -1658,12 +1658,13 @@ function renderMenuTabs(cat, skipTabs){
   }
   const f=cat=='ทั้งหมด'?cachedMenu:cachedMenu.filter(m=>m.category==cat);
   const grid=document.getElementById('menu-items-grid');
-  // Update each card in-place to avoid scroll jump
-  const existing=grid.querySelectorAll('[data-item-id]');
-  if(existing.length===f.length){
-    // Just update stock text and class without rebuilding DOM
-    f.forEach((i,idx)=>{
-      const card=existing[idx];
+  // จับคู่การ์ดเดิมด้วย "data-item-id" เสมอ (ไม่ใช่ตำแหน่ง index) — กันปัญหาสินค้าสลับตำแหน่งแล้วกดผิดชิ้น
+  const existingIds=new Set(Array.from(grid.querySelectorAll('[data-item-id]')).map(el=>el.dataset.itemId));
+  const canUpdateInPlace = existingIds.size===f.length && f.every(i=>existingIds.has(String(i.id)));
+  if(canUpdateInPlace){
+    // Just update stock text and class without rebuilding DOM (จับคู่ด้วย id เสมอ)
+    f.forEach((i)=>{
+      const card=grid.querySelector(`[data-item-id="${i.id}"]`);
       if(!card)return;
       const stockEl=card.querySelector('.stock-label');
       const cardInner=card.querySelector('.menu-card');
