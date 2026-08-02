@@ -2084,18 +2084,17 @@ function dlCSV(h,r,fn){
 
 // ─── PDF EXPORT (html2pdf.js — ใช้ฟอนต์ Prompt ที่โหลดอยู่แล้ว รองรับภาษาไทย 100%) ──
 function pdfCommonExport(container, filename){
-  // วางไว้มุมบนซ้ายจอจริง + คลุมด้วย overlay ระหว่างสร้างไฟล์ (แก้ปัญหา html2canvas capture ว่างเปล่าเวลาวางนอกจอ)
+  // เปิดแท็บใหม่ทันที (synchronous กับการคลิก) กัน browser บล็อก popup ตอน async เสร็จทีหลัง
+  const previewWin = window.open('', '_blank');
+  if(previewWin){
+    previewWin.document.write('<body style="margin:0;background:#111;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;font-size:16px">กำลังสร้าง PDF...</body>');
+  }
   container.style.position='fixed';
   container.style.top='0';
   container.style.left='0';
   container.style.zIndex='999999';
   container.style.maxHeight='100vh';
   container.style.overflow='auto';
-  const overlay=document.createElement('div');
-  overlay.id='_pdf_loading_overlay';
-  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:999998;display:flex;align-items:center;justify-content:center;color:#fff;font-family:"Prompt",sans-serif;font-size:16px';
-  overlay.innerText='กำลังสร้างไฟล์ PDF...';
-  document.body.appendChild(overlay);
   document.body.appendChild(container);
   html2pdf().set({
     margin:10,
@@ -2103,13 +2102,18 @@ function pdfCommonExport(container, filename){
     image:{type:'jpeg',quality:0.98},
     html2canvas:{scale:2,backgroundColor:'#ffffff',useCORS:true,windowWidth:container.scrollWidth||800},
     jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}
-  }).from(container).save().then(()=>{
+  }).from(container).toPdf().get('pdf').then(function(pdf){
+    const blobUrl = pdf.output('bloburl');
+    if(previewWin && !previewWin.closed){
+      previewWin.location.href = blobUrl;
+    } else {
+      window.open(blobUrl, '_blank');
+    }
     if(document.body.contains(container)) document.body.removeChild(container);
-    if(document.body.contains(overlay)) document.body.removeChild(overlay);
-  }).catch(e=>{
+  }).catch(function(e){
     alert('สร้าง PDF ไม่สำเร็จ: '+e.message);
+    if(previewWin && !previewWin.closed) previewWin.close();
     if(document.body.contains(container)) document.body.removeChild(container);
-    if(document.body.contains(overlay)) document.body.removeChild(overlay);
   });
 }
 function downloadHtmlAsPDF(htmlBody, filename){
