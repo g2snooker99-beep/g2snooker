@@ -19,6 +19,51 @@ PRICE_MODES = {
 
 app = Flask(__name__)
 
+# ── FIRESTORE (สำหรับ Print Agent ที่ร้าน) ─────────────────────
+import firebase_admin
+from firebase_admin import credentials as fb_credentials, firestore as fb_firestore
+
+_firestore_db = None
+def _init_firestore():
+    """เชื่อมต่อ Firestore ด้วย Service Account (อ่านจาก env var FIREBASE_SERVICE_ACCOUNT_JSON)"""
+    global _firestore_db
+    if _firestore_db is not None:
+        return _firestore_db
+    try:
+        raw = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON', '')
+        if not raw:
+            print("[WARN] FIREBASE_SERVICE_ACCOUNT_JSON ไม่ได้ตั้งค่า — ปิดใช้งาน Firestore print job")
+            return None
+        cred_dict = json.loads(raw)
+        cred = fb_credentials.Certificate(cred_dict)
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred)
+        _firestore_db = fb_firestore.client()
+        print("[OK] Firestore เชื่อมต่อสำเร็จ (print jobs)")
+        return _firestore_db
+    except Exception as e:
+        print(f"[WARN] Firestore init ล้มเหลว: {e}")
+        return None
+
+def create_firestore_print_job(bill):
+    """สร้าง print job ใหม่ใน Firestore collection 'printJobs' ให้ Agent ที่ร้านหยิบไปพิมพ์"""
+    db = _init_firestore()
+    if db is None:
+        return False, "ยังไม่ได้ตั้งค่า Firebase credentials บนเซิร์ฟเวอร์ (FIREBASE_SERVICE_ACCOUNT_JSON)"
+    try:
+        doc = {
+            "billNo": bill.get("bill_no",""),
+            "status": "pending",
+            "createdAt": fb_firestore.SERVER_TIMESTAMP,
+            "tableName": bill.get("table_name",""),
+            "cashier": bill.get("cashier",""),
+            "payload": bill,
+        }
+        db.collection("printJobs").add(doc)
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
 def _get_rate(hr, rates):
     """หาอัตราของชั่วโมงนั้น — รองรับช่วงข้ามเที่ยงคืน"""
     for r in rates:
@@ -1446,32 +1491,14 @@ def get_cancel_logs():
         print(f"[ERROR] cancel_logs: {e}")
         return jsonify([])
 
-# ── PRINT QUEUE (สำหรับ Print Station) ────────────────────────
-@app.route("/api/print_queue", methods=["GET","POST"])
-def print_queue():
-    conn = get_db_connection()
-    if IS_PG:
-        conn.execute("CREATE TABLE IF NOT EXISTS print_queue (id SERIAL PRIMARY KEY, bill_no TEXT, payload TEXT, status TEXT DEFAULT 'pending', created_at TEXT)")
-    else:
-        conn.execute("CREATE TABLE IF NOT EXISTS print_queue (id INTEGER PRIMARY KEY, bill_no TEXT, payload TEXT, status TEXT DEFAULT 'pending', created_at TEXT)")
-    conn.commit()
-    if request.method == "POST":
-        d = request.json or {}
-        conn.execute("INSERT INTO print_queue (bill_no,payload,status,created_at) VALUES (?,?,?,?)",
-            (d.get('bill_no',''), json.dumps(d, ensure_ascii=False), 'pending', datetime.now().isoformat()))
-        conn.commit(); conn.close()
+# ── FIRESTORE PRINT (Agent ที่ร้านรับงานผ่าน Firestore realtime) ──
+@app.route("/api/print/remote", methods=["POST"])
+def print_remote():
+    bill = request.json or {}
+    ok, err = create_firestore_print_job(bill)
+    if ok:
         return jsonify({"status":"success"})
-    status = request.args.get('status','pending')
-    rows = conn.execute("SELECT * FROM print_queue WHERE status=? ORDER BY id ASC LIMIT 20", (status,)).fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
-
-@app.route("/api/print_queue/<int:pid>/done", methods=["POST"])
-def print_queue_done(pid):
-    conn = get_db_connection()
-    conn.execute("UPDATE print_queue SET status='done' WHERE id=?", (pid,))
-    conn.commit(); conn.close()
-    return jsonify({"status":"success"})
+    return jsonify({"status":"error","msg":err}), 500
 
 # ── ACTIVITY LOGS ────────────────────────────────────────────
 @app.route("/api/activity_logs")
