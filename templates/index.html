@@ -2084,23 +2084,37 @@ function dlCSV(h,r,fn){
 
 // ─── PDF EXPORT (html2pdf.js — ใช้ฟอนต์ Prompt ที่โหลดอยู่แล้ว รองรับภาษาไทย 100%) ──
 function pdfCommonExport(container, filename){
+  // วางไว้มุมบนซ้ายจอจริง + คลุมด้วย overlay ระหว่างสร้างไฟล์ (แก้ปัญหา html2canvas capture ว่างเปล่าเวลาวางนอกจอ)
+  container.style.position='fixed';
+  container.style.top='0';
+  container.style.left='0';
+  container.style.zIndex='999999';
+  container.style.maxHeight='100vh';
+  container.style.overflow='auto';
+  const overlay=document.createElement('div');
+  overlay.id='_pdf_loading_overlay';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:999998;display:flex;align-items:center;justify-content:center;color:#fff;font-family:"Prompt",sans-serif;font-size:16px';
+  overlay.innerText='กำลังสร้างไฟล์ PDF...';
+  document.body.appendChild(overlay);
   document.body.appendChild(container);
   html2pdf().set({
     margin:10,
     filename:filename,
     image:{type:'jpeg',quality:0.98},
-    html2canvas:{scale:2,backgroundColor:'#ffffff'},
+    html2canvas:{scale:2,backgroundColor:'#ffffff',useCORS:true,windowWidth:container.scrollWidth||800},
     jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}
   }).from(container).save().then(()=>{
-    document.body.removeChild(container);
+    if(document.body.contains(container)) document.body.removeChild(container);
+    if(document.body.contains(overlay)) document.body.removeChild(overlay);
   }).catch(e=>{
     alert('สร้าง PDF ไม่สำเร็จ: '+e.message);
-    document.body.removeChild(container);
+    if(document.body.contains(container)) document.body.removeChild(container);
+    if(document.body.contains(overlay)) document.body.removeChild(overlay);
   });
 }
 function downloadHtmlAsPDF(htmlBody, filename){
   const container=document.createElement('div');
-  container.style.cssText='position:absolute;left:-9999px;top:-9999px;width:700px;background:#fff;color:#111;padding:20px;font-family:\'Prompt\',sans-serif;';
+  container.style.cssText='width:700px;background:#fff;color:#111;padding:20px;font-family:\'Prompt\',sans-serif;';
   container.innerHTML=htmlBody;
   pdfCommonExport(container, filename);
 }
@@ -2115,7 +2129,7 @@ function downloadTablePDF(tbodyId, filename, titleText, subtitleText){
   clone.querySelectorAll('td').forEach(el=>{el.style.cssText='padding:6px 8px;border-bottom:1px solid #eee;color:#111';});
   const shopName=localStorage.getItem('shop_name')||'G2 SNOOKER';
   const container=document.createElement('div');
-  container.style.cssText='position:absolute;left:-9999px;top:-9999px;width:750px;background:#fff;color:#111;padding:20px;font-family:\'Prompt\',sans-serif;';
+  container.style.cssText='width:750px;background:#fff;color:#111;padding:20px;font-family:\'Prompt\',sans-serif;';
   container.innerHTML=`
     <h1 style="font-size:18px;text-align:center;margin-bottom:4px;color:#111">${shopName}</h1>
     <div style="text-align:center;color:#666;font-size:12px;margin-bottom:16px">${titleText}${subtitleText?(' | '+subtitleText):''} | พิมพ์เมื่อ ${new Date().toLocaleString('th-TH')}</div>
