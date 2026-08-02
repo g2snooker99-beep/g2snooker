@@ -2156,6 +2156,17 @@ function toThaiDateTimeStr(isoStr){
   const pad=n=>String(n).padStart(2,'0');
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+function toDurationText(startIso,endIso){
+  if(!startIso||!endIso) return null;
+  const s1 = startIso.endsWith('Z')?startIso:startIso+'Z';
+  const s2 = endIso.endsWith('Z')?endIso:endIso+'Z';
+  const d1 = new Date(s1), d2 = new Date(s2);
+  if(isNaN(d1.getTime())||isNaN(d2.getTime())) return null;
+  const totalMins = Math.round((d2-d1)/60000);
+  if(totalMins<0) return null;
+  const h = Math.floor(totalMins/60), m = totalMins%60;
+  return h>0 ? `${h} ชม. ${m} นาที` : `${m} นาที`;
+}
 
 function dlCSV(h,r,fn){
   const csv=[h.join(','),...r.map(row=>row.map(v=>`"${v||''}"`).join(','))].join('\n');

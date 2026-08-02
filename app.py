@@ -550,6 +550,17 @@ def startup():
                 conn_mr.commit(); conn_mr.close()
             except Exception as mre:
                 print(f"[WARN] bills member_reward_disc migration: {mre}")
+            try:
+                conn_dc = get_db_connection()
+                if IS_PG:
+                    conn_dc.execute("ALTER TABLE bills ADD COLUMN IF NOT EXISTS discount REAL DEFAULT 0")
+                else:
+                    existing_dc = [r[1] for r in conn_dc._raw.cursor().execute("PRAGMA table_info(bills)").fetchall()]
+                    if 'discount' not in existing_dc:
+                        conn_dc.execute("ALTER TABLE bills ADD COLUMN discount REAL DEFAULT 0")
+                conn_dc.commit(); conn_dc.close()
+            except Exception as dce:
+                print(f"[WARN] bills discount migration: {dce}")
             active_sessions = load_sessions()
         except Exception as e:
             print(f"[WARN] DB init failed: {e}")
@@ -779,15 +790,15 @@ def checkout():
     if IS_PG:
         import psycopg2.extras
         raw=conn._raw.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method,price_mode,member_reward_disc) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'ชำระแล้ว',%s,%s,%s) RETURNING id",
-                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method,price_mode,member_reward_disc))
+        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method,price_mode,member_reward_disc,discount) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'ชำระแล้ว',%s,%s,%s,%s) RETURNING id",
+                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method,price_mode,member_reward_disc,bill_discount))
         bid=raw.fetchone()['id']
         for o in sess['orders']:
             raw.execute("INSERT INTO bill_items (bill_id,name,qty,price,total) VALUES (%s,%s,%s,%s,%s)",(bid,o['name'],o['qty'],o['price'],o['total_price']))
     else:
         raw=conn._raw.cursor()
-        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method,price_mode,member_reward_disc) VALUES (?,?,?,?,?,?,?,?,?,'ชำระแล้ว',?,?,?)",
-                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method,price_mode,member_reward_disc))
+        raw.execute("INSERT INTO bills (bill_no,table_name,start_time,end_time,time_fee,food_fee,total,cashier,created_at,status,payment_method,price_mode,member_reward_disc,discount) VALUES (?,?,?,?,?,?,?,?,?,'ชำระแล้ว',?,?,?,?)",
+                    (bno,ti['name'],sess['start'].isoformat() if sess['start'] else None,end.isoformat(),fee,sess['total_food'],total,cashier,end.isoformat(),payment_method,price_mode,member_reward_disc,bill_discount))
         bid=raw.lastrowid
         for o in sess['orders']:
             raw.execute("INSERT INTO bill_items (bill_id,name,qty,price,total) VALUES (?,?,?,?,?)",(bid,o['name'],o['qty'],o['price'],o['total_price']))

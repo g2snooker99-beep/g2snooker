@@ -124,7 +124,7 @@ def init_db():
             "CREATE TABLE IF NOT EXISTS employees (id SERIAL PRIMARY KEY, name TEXT, pin TEXT UNIQUE, role TEXT)",
             "CREATE TABLE IF NOT EXISTS tables_config (id SERIAL PRIMARY KEY, name TEXT, type TEXT, rate_1 REAL)",
             "CREATE TABLE IF NOT EXISTS inventory (id SERIAL PRIMARY KEY, product_name TEXT, price REAL, cost REAL, stock_qty INTEGER, category TEXT)",
-            "CREATE TABLE IF NOT EXISTS bills (id SERIAL PRIMARY KEY, bill_no TEXT, table_name TEXT, start_time TEXT, end_time TEXT, time_fee REAL, food_fee REAL, total REAL, cashier TEXT, created_at TEXT, status TEXT, payment_method TEXT DEFAULT 'เงินสด')",
+            "CREATE TABLE IF NOT EXISTS bills (id SERIAL PRIMARY KEY, bill_no TEXT, table_name TEXT, start_time TEXT, end_time TEXT, time_fee REAL, food_fee REAL, total REAL, cashier TEXT, created_at TEXT, status TEXT, payment_method TEXT DEFAULT 'เงินสด', discount REAL DEFAULT 0)",
             "CREATE TABLE IF NOT EXISTS bill_items (id SERIAL PRIMARY KEY, bill_id INTEGER, name TEXT, qty INTEGER, price REAL, total REAL)",
             "CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, category TEXT, amount REAL, note TEXT, created_by TEXT, created_at TEXT)",
             "CREATE TABLE IF NOT EXISTS exchange_history (id SERIAL PRIMARY KEY, total_amount REAL, bill_100_qty INTEGER, bill_20_qty INTEGER, cashier TEXT, created_at TEXT)",
@@ -158,7 +158,7 @@ def init_db():
         c.execute('CREATE TABLE IF NOT EXISTS employees (id INTEGER PRIMARY KEY, name TEXT, pin TEXT UNIQUE, role TEXT)')
         c.execute('CREATE TABLE IF NOT EXISTS tables_config (id INTEGER PRIMARY KEY, name TEXT, type TEXT, rate_1 REAL)')
         c.execute('CREATE TABLE IF NOT EXISTS inventory (id INTEGER PRIMARY KEY, product_name TEXT, price REAL, cost REAL, stock_qty INTEGER, category TEXT)')
-        c.execute('CREATE TABLE IF NOT EXISTS bills (id INTEGER PRIMARY KEY, bill_no TEXT, table_name TEXT, start_time TEXT, end_time TEXT, time_fee REAL, food_fee REAL, total REAL, cashier TEXT, created_at TEXT, status TEXT, payment_method TEXT DEFAULT \'เงินสด\')')
+        c.execute('CREATE TABLE IF NOT EXISTS bills (id INTEGER PRIMARY KEY, bill_no TEXT, table_name TEXT, start_time TEXT, end_time TEXT, time_fee REAL, food_fee REAL, total REAL, cashier TEXT, created_at TEXT, status TEXT, payment_method TEXT DEFAULT \'เงินสด\', discount REAL DEFAULT 0)')
         c.execute('CREATE TABLE IF NOT EXISTS bill_items (id INTEGER PRIMARY KEY, bill_id INTEGER, name TEXT, qty INTEGER, price REAL, total REAL)')
         c.execute('CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY, category TEXT, amount REAL, note TEXT, created_by TEXT, created_at TEXT)')
         c.execute('CREATE TABLE IF NOT EXISTS exchange_history (id INTEGER PRIMARY KEY, total_amount REAL, bill_100_qty INTEGER, bill_20_qty INTEGER, cashier TEXT, created_at TEXT)')
