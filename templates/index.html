@@ -2089,18 +2089,18 @@ function pdfCommonExport(container, filename){
   if(previewWin){
     previewWin.document.write('<body style="margin:0;background:#111;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;font-size:16px">กำลังสร้าง PDF...</body>');
   }
-  container.style.position='fixed';
-  container.style.top='0';
+  // ใช้ absolute + top ตามตำแหน่ง scroll ปัจจุบัน แทน fixed (html2canvas จับภาพ position:fixed ไม่แม่นยำ มักได้ภาพว่าง)
+  const scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+  container.style.position='absolute';
+  container.style.top=scrollY+'px';
   container.style.left='0';
   container.style.zIndex='999999';
-  container.style.maxHeight='100vh';
-  container.style.overflow='auto';
   document.body.appendChild(container);
   html2pdf().set({
     margin:10,
     filename:filename,
     image:{type:'jpeg',quality:0.98},
-    html2canvas:{scale:2,backgroundColor:'#ffffff',useCORS:true,windowWidth:container.scrollWidth||800},
+    html2canvas:{scale:2,backgroundColor:'#ffffff',useCORS:true,windowWidth:container.scrollWidth||800,scrollX:0,scrollY:-scrollY},
     jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}
   }).from(container).toPdf().get('pdf').then(function(pdf){
     const blobUrl = pdf.output('bloburl');
