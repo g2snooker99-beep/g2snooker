@@ -6,6 +6,7 @@
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#090c15;--glass:rgba(255,255,255,0.03);--gold:#d4af37;--cyan:#00f0ff}
@@ -133,6 +134,7 @@ h6.text-muted{color:#94a3b8 !important}
         <div class="col-md-3"><label class="small text-muted">โต๊ะ</label><input type="text" id="bill-filter-table" class="form-control custom-input" placeholder="เช่น โต๊ะ 1"></div>
         <div class="col-md-3"><button class="btn btn-info w-100 fw-bold" onclick="loadBills()"><i class="fa-solid fa-magnifying-glass me-1"></i>ค้นหา</button></div>
         <div class="col-md-3" id="btn-export-bills"><button class="btn btn-success w-100 fw-bold" onclick="exportBillsCSV()"><i class="fa-solid fa-file-csv me-1"></i>Export CSV</button></div>
+        <div class="col-md-3"><button class="btn btn-danger w-100 fw-bold" onclick="downloadBillsPDF()"><i class="fa-solid fa-file-pdf me-1"></i>ดาวน์โหลด PDF</button></div>
       </div>
     </div>
     <div class="card-panel">
@@ -201,7 +203,10 @@ h6.text-muted{color:#94a3b8 !important}
     <div class="card-panel">
       <div class="d-flex justify-content-between align-items-center mb-3">
         <h6 class="text-warning mb-0">ตารางแจกแจงบิลประจำกะ</h6>
-        <button id="btn-report-export" class="btn btn-success btn-sm fw-bold" onclick="exportReportCSV()"><i class="fa-solid fa-file-csv me-1"></i>Export CSV</button>
+        <div class="d-flex gap-2">
+          <button id="btn-report-export" class="btn btn-success btn-sm fw-bold" onclick="exportReportCSV()"><i class="fa-solid fa-file-csv me-1"></i>Export CSV</button>
+          <button class="btn btn-danger btn-sm fw-bold" onclick="downloadReportPDF()"><i class="fa-solid fa-file-pdf me-1"></i>PDF</button>
+        </div>
       </div>
       <table class="table table-premium text-center">
         <thead><tr><th>เวลา</th><th>เลขที่บิล</th><th>โต๊ะ</th><th>ค่าโต๊ะ (฿)</th><th>ค่าอาหาร (฿)</th><th>รวม (฿)</th></tr></thead>
@@ -419,7 +424,10 @@ h6.text-muted{color:#94a3b8 !important}
       <div class="card-panel">
         <div class="d-flex justify-content-between align-items-center mb-3">
           <h6 class="text-info mb-0">🕐 ประวัติการจ่ายเงินเดือน</h6>
-          <select id="pr-hist-filter" class="form-select custom-input" style="width:180px" onchange="loadPayrollHistory()"><option value="">ทุกคน</option></select>
+          <div class="d-flex gap-2">
+            <select id="pr-hist-filter" class="form-select custom-input" style="width:180px" onchange="loadPayrollHistory()"><option value="">ทุกคน</option></select>
+            <button class="btn btn-danger btn-sm fw-bold" onclick="downloadPayrollPDF()"><i class="fa-solid fa-file-pdf me-1"></i>PDF</button>
+          </div>
         </div>
         <table class="table table-premium text-center">
           <thead><tr><th>งวด</th><th>พนักงาน</th><th>อัตรา/วัน</th><th>วันทำงาน</th><th>OT+โบนัส</th><th>หัก</th><th class="text-warning">สุทธิ</th><th></th></tr></thead>
@@ -2074,6 +2082,54 @@ function dlCSV(h,r,fn){
   a.download=fn;a.click();
 }
 
+// ─── PDF EXPORT (html2pdf.js — ใช้ฟอนต์ Prompt ที่โหลดอยู่แล้ว รองรับภาษาไทย 100%) ──
+function pdfCommonExport(container, filename){
+  document.body.appendChild(container);
+  html2pdf().set({
+    margin:10,
+    filename:filename,
+    image:{type:'jpeg',quality:0.98},
+    html2canvas:{scale:2,backgroundColor:'#ffffff'},
+    jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}
+  }).from(container).save().then(()=>{
+    document.body.removeChild(container);
+  }).catch(e=>{
+    alert('สร้าง PDF ไม่สำเร็จ: '+e.message);
+    document.body.removeChild(container);
+  });
+}
+function downloadHtmlAsPDF(htmlBody, filename){
+  const container=document.createElement('div');
+  container.style.cssText='position:absolute;left:-9999px;top:-9999px;width:700px;background:#fff;color:#111;padding:20px;font-family:\'Prompt\',sans-serif;';
+  container.innerHTML=htmlBody;
+  pdfCommonExport(container, filename);
+}
+function downloadTablePDF(tbodyId, filename, titleText, subtitleText){
+  const tbody=document.getElementById(tbodyId);
+  const table=tbody?tbody.closest('table'):null;
+  if(!table||!tbody.children.length){alert('ไม่มีข้อมูลสำหรับสร้าง PDF');return;}
+  const clone=table.cloneNode(true);
+  clone.querySelectorAll('button, a, .btn-del, .btn-xs').forEach(el=>el.remove());
+  clone.style.cssText='width:100%;border-collapse:collapse;font-size:12px;color:#111';
+  clone.querySelectorAll('th').forEach(el=>{el.style.cssText='padding:6px 8px;text-align:left;border-bottom:1px solid #ddd;background:#f3f4f6;color:#111';});
+  clone.querySelectorAll('td').forEach(el=>{el.style.cssText='padding:6px 8px;border-bottom:1px solid #eee;color:#111';});
+  const shopName=localStorage.getItem('shop_name')||'G2 SNOOKER';
+  const container=document.createElement('div');
+  container.style.cssText='position:absolute;left:-9999px;top:-9999px;width:750px;background:#fff;color:#111;padding:20px;font-family:\'Prompt\',sans-serif;';
+  container.innerHTML=`
+    <h1 style="font-size:18px;text-align:center;margin-bottom:4px;color:#111">${shopName}</h1>
+    <div style="text-align:center;color:#666;font-size:12px;margin-bottom:16px">${titleText}${subtitleText?(' | '+subtitleText):''} | พิมพ์เมื่อ ${new Date().toLocaleString('th-TH')}</div>
+  `;
+  container.appendChild(clone);
+  pdfCommonExport(container, filename);
+}
+function downloadBillsPDF(){ downloadTablePDF('bill-table-body', `bills_${Date.now()}.pdf`, 'รายงานบิลย้อนหลัง'); }
+function downloadReportPDF(){
+  const subtitle=document.getElementById('rep-date-title')?.innerText||'';
+  downloadTablePDF('daily-report-body', `report_${Date.now()}.pdf`, 'รายงานสรุปกะ', subtitle);
+}
+function downloadPayrollPDF(){ downloadTablePDF('payroll-hist-body', `payroll_${Date.now()}.pdf`, 'ประวัติการจ่ายเงินเดือน'); }
+
 // ─── INVENTORY ───────────────────────────────────────────────
 async function loadInventory(){
   const r=await fetch('/api/menu');const d=await r.json();
@@ -3528,58 +3584,41 @@ function exportShiftPDF(){
   const expected = document.getElementById('shift-expected')?.innerText || '0 ฿';
   const starting = document.getElementById('shift-starting')?.innerText || '0 ฿';
   const meta = document.getElementById('shift-meta')?.innerText || '';
-  const w = window.open('','_blank','width=600,height=800');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <title>ใบส่งกะ</title>
-  <style>
-    body{font-family:'Sarabun',sans-serif;font-size:13px;padding:20px;color:#111}
-    h1{font-size:18px;text-align:center;margin-bottom:4px}
-    .sub{text-align:center;color:#666;font-size:12px;margin-bottom:16px}
-    .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px}
-    .stat{border:1px solid #ddd;border-radius:6px;padding:8px;text-align:center}
-    .stat-label{font-size:11px;color:#666}
-    .stat-val{font-size:16px;font-weight:bold}
-    .green{color:#059669}.red{color:#dc2626}.blue{color:#0284c7}
-    table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px}
-    th{background:#f3f4f6;padding:6px 8px;text-align:left;border-bottom:1px solid #ddd}
-    td{padding:5px 8px;border-bottom:1px solid #eee}
-    .total-box{border:2px solid #059669;border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;margin-top:12px}
-    .total-val{font-size:22px;font-weight:bold;color:#059669}
-    hr{border:none;border-top:1px solid #ddd;margin:12px 0}
-  </style>
-  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
-  </head><body>
-  <h1>${shopName}</h1>
-  <div class="sub">ใบส่งกะ | ${meta}</div>
-  <div class="stat-grid">
-    <div class="stat"><div class="stat-label">รายได้รวม</div><div class="stat-val green">${sales}</div></div>
-    <div class="stat"><div class="stat-label">รายจ่าย</div><div class="stat-val red">${exp}</div></div>
-    <div class="stat"><div class="stat-label">กำไรสุทธิ</div><div class="stat-val blue">${net}</div></div>
-  </div>
-  <div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
-    <div class="stat"><div class="stat-label">เงินสด</div><div class="stat-val">${cash}</div></div>
-    <div class="stat"><div class="stat-label">โอนเงิน</div><div class="stat-val">${transfer}</div></div>
-  </div>
-  <h3 style="font-size:14px;margin-bottom:6px">บิลทั้งหมด</h3>
-  <table><thead><tr><th>เลขที่บิล</th><th>โต๊ะ</th><th>เวลา</th><th>ค่าโต๊ะ</th><th>ค่าอาหาร</th><th>รวม</th><th>ชำระ</th></tr></thead><tbody>${bills}</tbody></table>
-  <h3 style="font-size:14px;margin-bottom:6px">รายจ่าย</h3>
-  <table><thead><tr><th>เวลา</th><th>หมวดหมู่</th><th>รายละเอียด</th><th>จำนวน</th></tr></thead><tbody>${exps}</tbody></table>
-  <hr>
-  <div style="font-size:12px;color:#666">
-    <div style="display:flex;justify-content:space-between"><span>เงินตั้งต้น</span><span>${starting}</span></div>
-    <div style="display:flex;justify-content:space-between"><span>+ รายได้เงินสด</span><span class="green">${cash}</span></div>
-    <div style="display:flex;justify-content:space-between"><span>- รายจ่าย</span><span class="red">${exp}</span></div>
-  </div>
-  <div class="total-box">
-    <span style="font-size:14px;font-weight:bold">เงินสดที่ต้องมีในลิ้นชัก</span>
-    <span class="total-val">${expected}</span>
-  </div>
-  <div style="margin-top:40px;font-size:12px;color:#666;text-align:center">
-    ลายมือชื่อพนักงาน: ___________________________
-  </div>
-  </body></html>`);
-  w.document.close();
-  setTimeout(()=>w.print(), 500);
+  const htmlBody = `
+    <h1 style="font-size:18px;text-align:center;margin-bottom:4px;color:#111">${shopName}</h1>
+    <div style="text-align:center;color:#666;font-size:12px;margin-bottom:16px">ใบส่งกะ | ${meta}</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">
+      <div style="border:1px solid #ddd;border-radius:6px;padding:8px;text-align:center"><div style="font-size:11px;color:#666">รายได้รวม</div><div style="font-size:16px;font-weight:bold;color:#059669">${sales}</div></div>
+      <div style="border:1px solid #ddd;border-radius:6px;padding:8px;text-align:center"><div style="font-size:11px;color:#666">รายจ่าย</div><div style="font-size:16px;font-weight:bold;color:#dc2626">${exp}</div></div>
+      <div style="border:1px solid #ddd;border-radius:6px;padding:8px;text-align:center"><div style="font-size:11px;color:#666">กำไรสุทธิ</div><div style="font-size:16px;font-weight:bold;color:#0284c7">${net}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:16px">
+      <div style="border:1px solid #ddd;border-radius:6px;padding:8px;text-align:center"><div style="font-size:11px;color:#666">เงินสด</div><div style="font-size:16px;font-weight:bold">${cash}</div></div>
+      <div style="border:1px solid #ddd;border-radius:6px;padding:8px;text-align:center"><div style="font-size:11px;color:#666">โอนเงิน</div><div style="font-size:16px;font-weight:bold">${transfer}</div></div>
+    </div>
+    <h3 style="font-size:14px;margin-bottom:6px;color:#111">บิลทั้งหมด</h3>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;color:#111">
+      <thead><tr style="background:#f3f4f6"><th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">เลขที่บิล</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">โต๊ะ</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">เวลา</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">ค่าโต๊ะ</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">ค่าอาหาร</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">รวม</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">ชำระ</th></tr></thead>
+      <tbody>${bills}</tbody>
+    </table>
+    <h3 style="font-size:14px;margin-bottom:6px;color:#111">รายจ่าย</h3>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;color:#111">
+      <thead><tr style="background:#f3f4f6"><th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">เวลา</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">หมวดหมู่</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">รายละเอียด</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">จำนวน</th></tr></thead>
+      <tbody>${exps}</tbody>
+    </table>
+    <hr style="border:none;border-top:1px solid #ddd;margin:12px 0">
+    <div style="font-size:12px;color:#666">
+      <div style="display:flex;justify-content:space-between"><span>เงินตั้งต้น</span><span>${starting}</span></div>
+      <div style="display:flex;justify-content:space-between"><span>+ รายได้เงินสด</span><span style="color:#059669">${cash}</span></div>
+      <div style="display:flex;justify-content:space-between"><span>- รายจ่าย</span><span style="color:#dc2626">${exp}</span></div>
+    </div>
+    <div style="border:2px solid #059669;border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;margin-top:12px">
+      <span style="font-size:14px;font-weight:bold">เงินสดที่ต้องมีในลิ้นชัก</span>
+      <span style="font-size:22px;font-weight:bold;color:#059669">${expected}</span>
+    </div>
+    <div style="margin-top:40px;font-size:12px;color:#666;text-align:center">ลายมือชื่อพนักงาน: ___________________________</div>
+  `;
+  downloadHtmlAsPDF(htmlBody, `shift_${Date.now()}.pdf`);
 }
 
 async function openShiftModal(){
