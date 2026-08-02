@@ -1364,6 +1364,14 @@ function applyBranding(){
     localStorage.setItem('shop_name', s.shop_name||'POS');
     localStorage.setItem('shop_subtitle', s.shop_subtitle||'ระบบ POS Enterprise');
     localStorage.setItem('shop_qr_url', s.shop_qr_url||'');
+    localStorage.setItem('shop_abbr', s.shop_abbr||'');
+    localStorage.setItem('floor_title', s.floor_title||'');
+    localStorage.setItem('g2_print_settings', JSON.stringify({
+      method: s.print_method||'browser',
+      paper: s.print_paper||'80',
+      font: s.print_font||'sarabun',
+      printerName: s.print_printer_name||''
+    }));
     applyBranding();
   }catch(e){}
 })();
@@ -1800,7 +1808,7 @@ function loadPrintSettings(){
   if(document.getElementById('print-printer-name')) document.getElementById('print-printer-name').value=s.printerName||'';
   onPrintMethodChange();
 }
-function savePrintSettings(){
+async function savePrintSettings(){
   const s={
     method:document.getElementById('print-method')?.value||'browser',
     paper:document.getElementById('print-paper')?.value||'80',
@@ -1808,7 +1816,13 @@ function savePrintSettings(){
     printerName:document.getElementById('print-printer-name')?.value||''
   };
   localStorage.setItem(PRINT_SETTINGS_KEY,JSON.stringify(s));
-  alert('✅ บันทึกการตั้งค่าปริ้นสำเร็จ');
+  try{
+    await fetch('/api/settings?cashier='+encodeURIComponent(currentUser),{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({print_method:s.method,print_paper:s.paper,print_font:s.font,print_printer_name:s.printerName})});
+  }catch(e){
+    console.warn('sync print settings to server failed', e);
+  }
+  alert('✅ บันทึกการตั้งค่าปริ้นสำเร็จ (ใช้ได้ทุกอุปกรณ์)');
 }
 function getPrintSettings(){
   return JSON.parse(localStorage.getItem(PRINT_SETTINGS_KEY)||'{}');
@@ -2334,8 +2348,8 @@ async function loadSettings(){
   if(document.getElementById('set-tg-cancel-group')) document.getElementById('set-tg-cancel-group').value=s.telegram_cancel_group_id||'';
   // โหลดข้อมูลร้านจาก DB ทุกครั้ง
   if(document.getElementById('set-shop-name')) document.getElementById('set-shop-name').value=s.shop_name||'G2 SNOOKER';
-  if(document.getElementById('set-shop-abbr')) document.getElementById('set-shop-abbr').value=localStorage.getItem('shop_abbr')||'';
-  if(document.getElementById('set-floor-title')) document.getElementById('set-floor-title').value=localStorage.getItem('floor_title')||'';
+  if(document.getElementById('set-shop-abbr')) document.getElementById('set-shop-abbr').value=s.shop_abbr||'';
+  if(document.getElementById('set-floor-title')) document.getElementById('set-floor-title').value=s.floor_title||'';
   if(document.getElementById('sc-emp-mgr')) document.getElementById('sc-emp-mgr').value=s.sc_emp_mgr||'โต๋';
   if(document.getElementById('sc-emp-rot1')) document.getElementById('sc-emp-rot1').value=s.sc_emp_rot1||'บิว';
   if(document.getElementById('sc-emp-rot2')) document.getElementById('sc-emp-rot2').value=s.sc_emp_rot2||'ใบเฟิร์น';
@@ -2624,7 +2638,7 @@ async function saveShopInfo(){
   const floorTitle=document.getElementById('set-floor-title').value.trim();
   // เก็บเบอร์โทรดิบ ไม่ต้องแปลง - จะ generate EMV payload ตอนพิมพ์
   await fetch('/api/settings?cashier='+encodeURIComponent(currentUser),{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({shop_name:name,shop_subtitle:sub,shop_qr_url:qr})});
+    body:JSON.stringify({shop_name:name,shop_subtitle:sub,shop_qr_url:qr,shop_abbr:abbr,floor_title:floorTitle})});
   // cache locally for printSlip
   localStorage.setItem('shop_name',name);
   localStorage.setItem('shop_subtitle',sub);
@@ -2632,7 +2646,7 @@ async function saveShopInfo(){
   localStorage.setItem('shop_abbr',abbr);
   localStorage.setItem('floor_title',floorTitle);
   applyBranding();
-  alert('✅ บันทึกข้อมูลร้านสำเร็จ');
+  alert('✅ บันทึกข้อมูลร้านสำเร็จ (ใช้ได้ทุกอุปกรณ์)');
 }
 async function loadShopInfo(){
   const rs=await fetch('/api/settings');const s=await rs.json();
