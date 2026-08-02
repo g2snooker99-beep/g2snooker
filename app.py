@@ -1446,6 +1446,33 @@ def get_cancel_logs():
         print(f"[ERROR] cancel_logs: {e}")
         return jsonify([])
 
+# ── PRINT QUEUE (สำหรับ Print Station) ────────────────────────
+@app.route("/api/print_queue", methods=["GET","POST"])
+def print_queue():
+    conn = get_db_connection()
+    if IS_PG:
+        conn.execute("CREATE TABLE IF NOT EXISTS print_queue (id SERIAL PRIMARY KEY, bill_no TEXT, payload TEXT, status TEXT DEFAULT 'pending', created_at TEXT)")
+    else:
+        conn.execute("CREATE TABLE IF NOT EXISTS print_queue (id INTEGER PRIMARY KEY, bill_no TEXT, payload TEXT, status TEXT DEFAULT 'pending', created_at TEXT)")
+    conn.commit()
+    if request.method == "POST":
+        d = request.json or {}
+        conn.execute("INSERT INTO print_queue (bill_no,payload,status,created_at) VALUES (?,?,?,?)",
+            (d.get('bill_no',''), json.dumps(d, ensure_ascii=False), 'pending', datetime.now().isoformat()))
+        conn.commit(); conn.close()
+        return jsonify({"status":"success"})
+    status = request.args.get('status','pending')
+    rows = conn.execute("SELECT * FROM print_queue WHERE status=? ORDER BY id ASC LIMIT 20", (status,)).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/print_queue/<int:pid>/done", methods=["POST"])
+def print_queue_done(pid):
+    conn = get_db_connection()
+    conn.execute("UPDATE print_queue SET status='done' WHERE id=?", (pid,))
+    conn.commit(); conn.close()
+    return jsonify({"status":"success"})
+
 # ── ACTIVITY LOGS ────────────────────────────────────────────
 @app.route("/api/activity_logs")
 def get_activity_logs():
