@@ -1457,7 +1457,11 @@ async function updateGrid(){
 function renderGrid(){
   // render จาก cache — ไม่ยิง server
   const data=lastTableData;
-  const grid=document.getElementById('table-grid');grid.innerHTML='';
+  const grid=document.getElementById('table-grid');
+  // เก็บตำแหน่งเลื่อนของกล่องออเดอร์แต่ละโต๊ะไว้ก่อน กันเด้งขึ้นบนตอน rebuild DOM ทุกวินาที
+  const _scrollMap={};
+  grid.querySelectorAll('.order-mini[data-tid]').forEach(el=>{ _scrollMap[el.dataset.tid]=el.scrollTop; });
+  grid.innerHTML='';
   const _ids=Object.keys(data).sort(function(a,b){
     var na=parseInt(((data[a]&&data[a].name)||a).toString().replace(/\D/g,""))||0;
     var nb=parseInt(((data[b]&&data[b].name)||b).toString().replace(/\D/g,""))||0;
@@ -1515,7 +1519,7 @@ function renderGrid(){
       </div>
       ${noteLabel}${pmLabel}${t.type=='snooker'?`<div class="timer ${t.active?'':'text-muted'}">${timeStr}</div>`:'<div class="py-1"></div>'}
       ${t.active?costHtml:''}
-      <div class="order-mini">${trCost+oRows}</div>
+      <div class="order-mini" data-tid="${t.id}">${trCost+oRows}</div>
       <div class="d-flex gap-2 flex-wrap">
         ${!t.active
           ?`<button class="btn btn-success w-100 btn-sm fw-bold" onclick="openTable(${t.id})">เปิดโต๊ะ</button>
@@ -1532,6 +1536,11 @@ function renderGrid(){
       ${adminBtns}
     </div></div>`;
   }
+  // คืนตำแหน่งเลื่อนที่เก็บไว้ กันหน้าจอกระโดดขึ้นบนทุกครั้งที่ตัวจับเวลาอัปเดต
+  grid.querySelectorAll('.order-mini[data-tid]').forEach(el=>{
+    const tid=el.dataset.tid;
+    if(_scrollMap[tid]!==undefined) el.scrollTop=_scrollMap[tid];
+  });
 }
 function startUpdate(){
   updateGrid();                                     // fetch ทันที
