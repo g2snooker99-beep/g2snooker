@@ -1849,11 +1849,14 @@ def get_dashboard():
     r2=conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='starting_cash'").fetchone()
     ct=r1['setting_value'] if r1 else "06:00"; sc=float(r2['setting_value']) if r2 else 2000.0
     ch,cm=map(int,ct.split(':'))
-    now=datetime.now(); ctt=now.replace(hour=ch,minute=cm,second=0,microsecond=0)
-    if now<ctt:
-        ss=(now-timedelta(days=1)).replace(hour=ch,minute=cm,second=0,microsecond=0); sd=(now-timedelta(days=1)).strftime('%d/%m/%Y')
+    # created_at เก็บเป็น UTC (เวลาเซิร์ฟเวอร์) จึงต้องเทียบเวลาตัดยอดด้วย "เวลาไทยปัจจุบัน" (บวก TZ_OFFSET) แล้วแปลงกลับเป็น UTC ก่อน query
+    now_th=datetime.now()+TZ_OFFSET
+    ctt_th=now_th.replace(hour=ch,minute=cm,second=0,microsecond=0)
+    if now_th<ctt_th:
+        ss_th=(now_th-timedelta(days=1)).replace(hour=ch,minute=cm,second=0,microsecond=0); sd=(now_th-timedelta(days=1)).strftime('%d/%m/%Y')
     else:
-        ss=ctt; sd=now.strftime('%d/%m/%Y')
+        ss_th=ctt_th; sd=now_th.strftime('%d/%m/%Y')
+    ss=ss_th-TZ_OFFSET
     sstr=ss.strftime('%Y-%m-%d %H:%M:%S')
     bills=conn.execute("SELECT * FROM bills WHERE created_at>=? ORDER BY id DESC",(sstr,)).fetchall()
     sales=sum(b['total'] for b in bills)
@@ -1875,15 +1878,17 @@ def cron_daily_report():
     try:
         from datetime import datetime, timedelta
         conn = get_db_connection()
-        # ใช้เวลาตัดยอดกะเดียวกับ Dashboard (day_cutoff_time) แทนการนับเที่ยงคืนตายตัว
+        # created_at เก็บเป็น UTC จึงต้องคำนวณเวลาตัดยอดด้วย "เวลาไทยปัจจุบัน" (บวก TZ_OFFSET) แล้วแปลงกลับเป็น UTC ก่อน query
         r_ct = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='day_cutoff_time'").fetchone()
         ct_str = r_ct['setting_value'] if r_ct and r_ct['setting_value'] else "06:00"
         ch, cm = map(int, ct_str.split(':'))
-        now = datetime.now()
-        ctt = now.replace(hour=ch, minute=cm, second=0, microsecond=0)
-        cur_shift_start = (now - timedelta(days=1)).replace(hour=ch, minute=cm, second=0, microsecond=0) if now < ctt else ctt
-        period_start = cur_shift_start - timedelta(days=1)
-        period_end   = cur_shift_start
+        now_th = datetime.now() + TZ_OFFSET
+        ctt_th = now_th.replace(hour=ch, minute=cm, second=0, microsecond=0)
+        cur_shift_start_th = (now_th - timedelta(days=1)).replace(hour=ch, minute=cm, second=0, microsecond=0) if now_th < ctt_th else ctt_th
+        period_start_th = cur_shift_start_th - timedelta(days=1)
+        period_end_th   = cur_shift_start_th
+        period_start = period_start_th - TZ_OFFSET
+        period_end   = period_end_th - TZ_OFFSET
         bills = conn.execute(
             "SELECT total, time_fee, food_fee, created_at FROM bills WHERE created_at >= %s AND created_at < %s AND status = %s",
             (period_start.isoformat(), period_end.isoformat(), "ชำระแล้ว")
@@ -1892,7 +1897,7 @@ def cron_daily_report():
         shifts = {"A": [0,0.0,0.0,0.0], "B": [0,0.0,0.0,0.0], "C": [0,0.0,0.0,0.0]}
         for b in bills:
             try:
-                hh = int(b["created_at"][11:13])
+                hh = (datetime.fromisoformat(b["created_at"]) + TZ_OFFSET).hour
             except Exception:
                 hh = 0
             k = "A" if hh < 8 else ("B" if hh < 16 else "C")
@@ -1901,7 +1906,7 @@ def cron_daily_report():
             shifts[k][2] += float(b["time_fee"] or 0)
             shifts[k][3] += float(b["food_fee"] or 0)
 
-        yd = period_start.strftime("%d/%m/%Y")
+        yd = period_start_th.strftime("%d/%m/%Y")
         labels = [("A","🌙 กะดึก 00:00–08:00"),("B","☀️ กะเช้า 08:00–16:00"),("C","🌆 กะเย็น 16:00–00:00")]
         gt = 0.0; gb = 0
         msg = f"📊 G2 SNOOKER — สรุปยอดขาย\n📅 {yd}\n━━━━━━━━━━━━━━\n"
