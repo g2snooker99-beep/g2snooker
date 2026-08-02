@@ -141,6 +141,7 @@ def init_db():
                note TEXT DEFAULT '', created_at TEXT, UNIQUE(emp_name, work_date))""",
             "CREATE TABLE IF NOT EXISTS payroll_emp_settings (emp_name TEXT PRIMARY KEY, monthly_base REAL DEFAULT 0, working_days INTEGER DEFAULT 26, ot_rate REAL DEFAULT 0, late_penalty REAL DEFAULT 50)",
             "CREATE TABLE IF NOT EXISTS cancel_logs (id SERIAL PRIMARY KEY, log_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)",
+            "CREATE TABLE IF NOT EXISTS activity_logs (id SERIAL PRIMARY KEY, action_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)",
             "CREATE TABLE IF NOT EXISTS discount_periods (id SERIAL PRIMARY KEY, period_name TEXT, start_hour INTEGER, end_hour INTEGER, discount_amount REAL DEFAULT 0, is_active INTEGER DEFAULT 1)",
             "CREATE TABLE IF NOT EXISTS work_shifts (id SERIAL PRIMARY KEY, shift_name TEXT, start_time TEXT, end_time TEXT, color TEXT DEFAULT '#6366f1')",
             "CREATE TABLE IF NOT EXISTS work_schedule (id SERIAL PRIMARY KEY, emp_name TEXT, work_date TEXT, shift_id INTEGER, note TEXT DEFAULT '', UNIQUE(emp_name, work_date, shift_id))",
@@ -177,6 +178,10 @@ def init_db():
         c.execute('CREATE TABLE IF NOT EXISTS payroll_emp_settings (emp_name TEXT PRIMARY KEY, monthly_base REAL DEFAULT 0, working_days INTEGER DEFAULT 26, ot_rate REAL DEFAULT 0, late_penalty REAL DEFAULT 50)')
         c.execute('''CREATE TABLE IF NOT EXISTS cancel_logs (
             id INTEGER PRIMARY KEY, log_type TEXT,
+            table_name TEXT, detail TEXT,
+            cashier TEXT, created_at TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS activity_logs (
+            id INTEGER PRIMARY KEY, action_type TEXT,
             table_name TEXT, detail TEXT,
             cashier TEXT, created_at TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS discount_periods (

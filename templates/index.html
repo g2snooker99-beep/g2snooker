@@ -88,6 +88,7 @@ h6.text-muted{color:#94a3b8 !important}
   <nav class="d-flex flex-column">
     <button class="sidebar-btn active" id="btn-pos" onclick="switchView('pos-view',this);startUpdate()"><i class="fa-solid fa-desktop me-2"></i>ระบบจัดการโต๊ะ</button>
     <button class="sidebar-btn" id="btn-cancel-log" onclick="switchView('cancel-log-view',this);loadCancelLogs()"><i class="fa-solid fa-triangle-exclamation me-2"></i>ประวัติการยกเลิก</button>
+    <button class="sidebar-btn" id="btn-activity-log" onclick="switchView('activity-log-view',this);loadActivityLogs()"><i class="fa-solid fa-star me-2"></i>ประวัติการใช้งาน</button>
     <button class="sidebar-btn" id="btn-history" onclick="switchView('history-view',this);loadBills()"><i class="fa-solid fa-receipt me-2"></i>บิลย้อนหลัง</button>
     <button class="sidebar-btn" id="btn-inventory" onclick="switchView('inventory-view',this);loadInventory()"><i class="fa-solid fa-boxes-stacked me-2"></i>จัดการสต๊อก</button>
     <button class="sidebar-btn" id="btn-expense" onclick="switchView('expense-view',this);loadExpenses()"><i class="fa-solid fa-wallet me-2"></i>บันทึกรายจ่าย</button>
@@ -123,6 +124,28 @@ h6.text-muted{color:#94a3b8 !important}
       <table class="table table-premium text-center">
         <thead><tr><th>วันที่/เวลา</th><th>ประเภท</th><th>โต๊ะ</th><th class="text-start">รายละเอียด</th><th>ผู้ดำเนินการ</th></tr></thead>
         <tbody id="cancel-log-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="activity-log-view" class="app-view">
+    <div class="card-panel mb-3">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3"><label>วันที่</label><input type="date" id="activity-log-date" class="form-control custom-input" onchange="loadActivityLogs()"></div>
+        <div class="col-md-3"><button class="btn btn-info w-100 fw-bold mt-3" onclick="loadActivityLogs()"><i class="fa-solid fa-magnifying-glass me-1"></i>ค้นหา</button></div>
+      </div>
+    </div>
+    <div class="d-flex gap-2 mb-3 flex-wrap">
+      <button class="cat-btn active" id="al-tab-all" onclick="filterActivityLog('all',this)">ทั้งหมด</button>
+      <button class="cat-btn" id="al-tab-table" onclick="filterActivityLog('เปิดโต๊ะ,ปิดโต๊ะ/เช็คบิล,ย้ายโต๊ะ,รวมโต๊ะ,ยกเลิกโต๊ะ',this)">🎱 โต๊ะ</button>
+      <button class="cat-btn" id="al-tab-order" onclick="filterActivityLog('สั่งของ',this)">🍔 สั่งของ</button>
+      <button class="cat-btn" id="al-tab-inv" onclick="filterActivityLog('สินค้า/สต็อก',this)">📦 สต็อก</button>
+      <button class="cat-btn" id="al-tab-setting" onclick="filterActivityLog('ตั้งค่า/ราคา',this)">⚙️ ตั้งค่า</button>
+    </div>
+    <div class="card-panel">
+      <table class="table table-premium text-center">
+        <thead><tr><th>วันที่/เวลา</th><th>ประเภท</th><th>โต๊ะ/รายการ</th><th class="text-start">รายละเอียด</th><th>พนักงาน</th></tr></thead>
+        <tbody id="activity-log-body"></tbody>
       </table>
     </div>
   </div>
@@ -1228,7 +1251,7 @@ function toggleSidebar(){
 
 // ─── OPEN TABLE (await properly so timer shows immediately) ──
 async function openTable(tid, priceMode){
-  await fetch('/api/start/'+tid, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({price_mode:priceMode||''})});
+  await fetch('/api/start/'+tid, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({price_mode:priceMode||'',cashier:currentUser})});
   await updateGrid();
 }
 
@@ -1583,7 +1606,7 @@ async function doMove(sid){
     return;
   }
 
-  await fetch('/api/table/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,source:sid,target})});
+  await fetch('/api/table/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,source:sid,target,cashier:currentUser})});
   updateGrid();
 }
 async function confirmSetTime(){
@@ -1657,7 +1680,7 @@ async function addOrder(iid){
   }
   // ส่ง API เงียบๆ ไม่ re-render
   fetch('/api/order/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({table_id:selT,item_id:iid})}).then(()=>{
+    body:JSON.stringify({table_id:selT,item_id:iid,cashier:currentUser})}).then(()=>{
       updateGrid(); // update floor plan เงียบๆ
   });
 }
@@ -2176,7 +2199,7 @@ async function loadInventory(){
 }
 async function addStock(id){
   const q=prompt("จำนวนที่เติม:");if(q&&!isNaN(q)){
-    await fetch('/api/inventory/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,qty:q})});
+    await fetch('/api/inventory/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,qty:q,cashier:currentUser})});
     loadInventory();fetchMenuCache();
   }
 }
@@ -2197,7 +2220,7 @@ async function addNewProduct(){
   const cat=catNew||catSel||'ทั่วไป';
   document.getElementById('np-cat').value=cat;
   const d={name:document.getElementById('np-name').value,category:cat,
-            price:document.getElementById('np-price').value,cost:document.getElementById('np-cost').value,qty:document.getElementById('np-qty').value};
+            price:document.getElementById('np-price').value,cost:document.getElementById('np-cost').value,qty:document.getElementById('np-qty').value,cashier:currentUser};
   if(!d.name||!d.price)return alert('กรุณากรอกชื่อและราคา');
   await fetch('/api/inventory/new',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
   bootstrap.Modal.getInstance(document.getElementById('newProductModal')).hide();
@@ -2207,7 +2230,7 @@ async function addNewProduct(){
 async function deleteProduct(id, name){
   if(!hasPerm('inventory_edit')){alert('ไม่มีสิทธิ์');return;}
   if(!confirm(`ลบสินค้า "${name}" ออกจากระบบ?`))return;
-  const r=await fetch(`/api/inventory/${id}`,{method:'DELETE'});
+  const r=await fetch(`/api/inventory/${id}?cashier=${encodeURIComponent(currentUser)}`,{method:'DELETE'});
   if(r.ok){loadInventory();fetchMenuCache();}
   else alert('ลบไม่สำเร็จ');
 }
@@ -2316,12 +2339,12 @@ async function loadSettings(){
 }
 async function saveStartingCash(){
   const v=document.getElementById('set-cash').value;
-  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({starting_cash:v})});
+  await fetch('/api/settings?cashier='+encodeURIComponent(currentUser),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({starting_cash:v})});
   startingCash=parseFloat(v);alert(`บันทึกเงินตั้งต้น ${parseFloat(v).toLocaleString()} บาท สำเร็จ!`);
 }
 async function saveCutoff(){
   const v=document.getElementById('set-cutoff').value;
-  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({day_cutoff_time:v})});
+  await fetch('/api/settings?cashier='+encodeURIComponent(currentUser),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({day_cutoff_time:v})});
   alert("บันทึกเวลาตัดยอดสำเร็จ!");
 }
 // ─── EXCHANGE STOCK ──────────────────────────────────────────
@@ -2443,7 +2466,7 @@ async function deleteFoodTable(id,name){
 }
 async function saveEspUrl(){
   const url=document.getElementById('set-esp-url').value.trim();
-  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+  await fetch('/api/settings?cashier='+encodeURIComponent(currentUser),{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({esp8266_url:url})});
   alert('✅ บันทึก URL สำเร็จ');
 }
@@ -2470,7 +2493,7 @@ async function saveLineSettings(){
   const chk_tok = document.getElementById('set-line-checkin-token')?.value.trim()||'';
   const chk_gid = document.getElementById('set-line-checkin-groupid')?.value.trim()||'';
 
-  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+  await fetch('/api/settings?cashier='+encodeURIComponent(currentUser),{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       line_token: token, 
       line_user_id: uid, 
@@ -2529,12 +2552,12 @@ function addTgRoom(){
 async function saveTelegramSettings(){
   const token = document.getElementById('set-tg-token').value.trim();
   // บันทึก token ลง DB
-  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+  await fetch('/api/settings?cashier='+encodeURIComponent(currentUser),{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({telegram_token:token, telegram_chat_id: _tgRooms.find(r=>r.notify_checkout)?.chat_id||''})});
   // บันทึก rooms ลง localStorage + DB
   localStorage.setItem('tg_rooms', JSON.stringify(_tgRooms));
   // บันทึก rooms เป็น JSON ใน settings
-  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+  await fetch('/api/settings?cashier='+encodeURIComponent(currentUser),{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({telegram_rooms: JSON.stringify(_tgRooms)})});
   alert('✅ บันทึก Telegram สำเร็จ');
 }
@@ -2556,7 +2579,7 @@ async function saveScEmpSettings(){
     sc_emp_rot3:  document.getElementById('sc-emp-rot3').value.trim(),
     sc_emp_fixed: document.getElementById('sc-emp-fixed').value.trim(),
   };
-  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  await fetch('/api/settings?cashier='+encodeURIComponent(currentUser),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   alert('✅ บันทึกชื่อพนักงานสำเร็จ');
 }
 async function saveShopInfo(){
@@ -2566,7 +2589,7 @@ async function saveShopInfo(){
   const abbr=document.getElementById('set-shop-abbr').value.trim();
   const floorTitle=document.getElementById('set-floor-title').value.trim();
   // เก็บเบอร์โทรดิบ ไม่ต้องแปลง - จะ generate EMV payload ตอนพิมพ์
-  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+  await fetch('/api/settings?cashier='+encodeURIComponent(currentUser),{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({shop_name:name,shop_subtitle:sub,shop_qr_url:qr})});
   // cache locally for printSlip
   localStorage.setItem('shop_name',name);
@@ -2601,7 +2624,7 @@ async function saveRates(){
     const name=String(sh).padStart(2,'0')+':00-'+String(eh).padStart(2,'0')+':00 ('+rate+'฿)';
     return {id:rt.id, start_hour:sh, end_hour:eh, rate:parseFloat(rate), period_name:name};
   });
-  await fetch('/api/rates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(pl)});
+  await fetch('/api/rates?cashier='+encodeURIComponent(currentUser),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(pl)});
   alert("บันทึกเรทราคาสำเร็จ!");
 }
 
@@ -3066,6 +3089,49 @@ function renderCancelLogs(){
     ?filtered.map(l=>`<tr>
       <td class="text-muted small">${(l.created_at||'').replace('T',' ').substr(0,16)}</td>
       <td><span class="badge ${TYPE_BADGE[l.log_type]||'bg-secondary'}">${l.log_type||'-'}</span></td>
+      <td class="text-info">${l.table_name||'-'}</td>
+      <td class="text-start small">${l.detail||'-'}</td>
+      <td class="text-success fw-bold">${l.cashier||'-'}</td>
+    </tr>`).join('')
+    :'<tr><td colspan="5" class="text-muted text-center py-4">ยังไม่มีรายการ</td></tr>';
+}
+
+// ─── ACTIVITY LOG ────────────────────────────────────────────
+let allActivityLogs = [];
+let currentActivityFilter = 'all';
+async function loadActivityLogs(){
+  const dateEl=document.getElementById('activity-log-date');
+  if(dateEl && !dateEl.value) dateEl.value=new Date().toISOString().split('T')[0];
+  const date=document.getElementById('activity-log-date')?.value||'';
+  const prm=new URLSearchParams();
+  if(date) prm.append('date',date);
+  const r=await fetch('/api/activity_logs?'+prm.toString());
+  allActivityLogs=await r.json();
+  renderActivityLogs();
+}
+function filterActivityLog(types, btn){
+  currentActivityFilter=types;
+  document.querySelectorAll('[id^="al-tab-"]').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderActivityLogs();
+}
+function renderActivityLogs(){
+  const TYPE_COLOR={
+    'เปิดโต๊ะ':'#10b981',
+    'ปิดโต๊ะ/เช็คบิล':'#3b82f6',
+    'ย้ายโต๊ะ':'#f59e0b',
+    'รวมโต๊ะ':'#8b5cf6',
+    'ยกเลิกโต๊ะ':'#ef4444',
+    'สั่งของ':'#06b6d4',
+    'สินค้า/สต็อก':'#64748b',
+    'ตั้งค่า/ราคา':'#1a1a2e'
+  };
+  const filterList = currentActivityFilter==='all' ? null : currentActivityFilter.split(',');
+  const filtered = !filterList ? allActivityLogs : allActivityLogs.filter(l=>filterList.includes(l.action_type));
+  document.getElementById('activity-log-body').innerHTML=filtered.length
+    ?filtered.map(l=>`<tr>
+      <td class="text-muted small">${(l.created_at||'').replace('T',' ').substr(0,16)}</td>
+      <td><span class="badge" style="background:${TYPE_COLOR[l.action_type]||'#64748b'};color:#fff">${l.action_type||'-'}</span></td>
       <td class="text-info">${l.table_name||'-'}</td>
       <td class="text-start small">${l.detail||'-'}</td>
       <td class="text-success fw-bold">${l.cashier||'-'}</td>

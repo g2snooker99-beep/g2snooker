@@ -376,6 +376,19 @@ def send_telegram_rooms(message, notify_type='checkout'):
     except Exception as e:
         print(f"[WARN] send_telegram_rooms: {e}")
 
+def log_activity(action_type, table_name='', detail='', cashier='ไม่ระบุ'):
+    try:
+        conn = get_db_connection()
+        if IS_PG:
+            conn.execute("CREATE TABLE IF NOT EXISTS activity_logs (id SERIAL PRIMARY KEY, action_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
+        else:
+            conn.execute("CREATE TABLE IF NOT EXISTS activity_logs (id INTEGER PRIMARY KEY, action_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
+        conn.execute("INSERT INTO activity_logs (action_type,table_name,detail,cashier,created_at) VALUES (?,?,?,?,?)",
+            (action_type, table_name, detail or '', cashier or 'ไม่ระบุ', datetime.now().isoformat()))
+        conn.commit(); conn.close()
+    except Exception as e:
+        print(f"[WARN] log_activity: {e}")
+
 app.secret_key = 'g2snooker_v5_enterprise'
 
 # ── SESSION PERSISTENCE ───────────────────────────────────────
@@ -572,10 +585,20 @@ def start_table(tid):
     d = request.json or {}
     price_mode = d.get('price_mode','') or ''
     if price_mode and price_mode not in PRICE_MODES: price_mode = ''
+    cashier = d.get('cashier','ไม่ระบุ')
     sess = {"active":True,"start":datetime.now(),"orders":[],"total_food":0,"limit_mins":0,"note":"","price_mode":price_mode}
     active_sessions[tid] = sess
     save_session(tid, sess)
     send_relay(tid, "on")
+    try:
+        conn_t = get_db_connection()
+        t_row = conn_t.execute("SELECT name FROM tables_config WHERE id=?", (tid,)).fetchone()
+        conn_t.close()
+        t_name = t_row['name'] if t_row else f"โต๊ะ {tid}"
+        pm_label = PRICE_MODES.get(price_mode,{}).get('label','ปกติ') if price_mode else 'ปกติ'
+        log_activity('เปิดโต๊ะ', t_name, f"โหมดราคา: {pm_label}", cashier)
+    except Exception as le:
+        print(f"[WARN] log_activity start_table: {le}")
     return jsonify({"status":"success"})
 
 @app.route("/api/table/set_time", methods=["POST"])
@@ -622,6 +645,11 @@ def table_action():
         except Exception as le:
             print(f"[WARN] cancel_log insert: {le}")
         conn.commit(); conn.close()
+        try:
+            detail_txt = f"{detail} | เหตุผล: {reason}" if reason else detail
+            log_activity('ยกเลิกโต๊ะ', tab_name, detail_txt, cashier)
+        except Exception as le2:
+            print(f"[WARN] log_activity cancel: {le2}")
         active_sessions.pop(src); delete_session(src)
         send_relay(src, 'off')
         now_th = (datetime.now() + TZ_OFFSET).strftime('%H:%M')
@@ -629,12 +657,34 @@ def table_action():
         send_line_cancel_flex("ยกเลิกโต๊ะ", tab_name, detail, cashier, now_th, reason)
         return jsonify({"status":"success"})
     elif action=='move' and src in active_sessions and dst not in active_sessions:
+        cashier = d.get('cashier','ไม่ระบุ')
+        try:
+            conn_mv = get_db_connection()
+            src_t = conn_mv.execute("SELECT name FROM tables_config WHERE id=?", (src,)).fetchone()
+            dst_t = conn_mv.execute("SELECT name FROM tables_config WHERE id=?", (dst,)).fetchone()
+            conn_mv.close()
+            src_name = src_t['name'] if src_t else f"โต๊ะ {src}"
+            dst_name = dst_t['name'] if dst_t else f"โต๊ะ {dst}"
+            log_activity('ย้ายโต๊ะ', src_name, f"ย้ายไป {dst_name}", cashier)
+        except Exception as le:
+            print(f"[WARN] log_activity move: {le}")
         active_sessions[dst]=active_sessions.pop(src)
         delete_session(src); save_session(dst, active_sessions[dst])
         send_relay(src, 'off')
         send_relay(dst, 'on')
         return jsonify({"status":"success"})
     elif action=='merge' and src in active_sessions and dst in active_sessions:
+        cashier = d.get('cashier','ไม่ระบุ')
+        try:
+            conn_mg = get_db_connection()
+            src_t = conn_mg.execute("SELECT name FROM tables_config WHERE id=?", (src,)).fetchone()
+            dst_t = conn_mg.execute("SELECT name FROM tables_config WHERE id=?", (dst,)).fetchone()
+            conn_mg.close()
+            src_name = src_t['name'] if src_t else f"โต๊ะ {src}"
+            dst_name = dst_t['name'] if dst_t else f"โต๊ะ {dst}"
+            log_activity('รวมโต๊ะ', src_name, f"รวมเข้า {dst_name}", cashier)
+        except Exception as le:
+            print(f"[WARN] log_activity merge: {le}")
         if active_sessions[src]['start'] and active_sessions[dst]['start']:
             active_sessions[dst]['start']-=(datetime.now()-active_sessions[src]['start'])
         for so in active_sessions[src]['orders']:
@@ -727,6 +777,10 @@ def checkout():
         })
     except Exception as te:
         print(f"[WARN] Telegram notify: {te}")
+    try:
+        log_activity('ปิดโต๊ะ/เช็คบิล', ti['name'], f"รวม {total:,} ฿ (ค่าโต๊ะ {fee:,.2f} + อาหาร {sess['total_food']:,.2f}) ผ่าน {payment_method}", cashier)
+    except Exception as lae:
+        print(f"[WARN] log_activity checkout: {lae}")
     return jsonify({"status":"success","bill_no":bno,"bill_id":bid,"table_name":ti['name'],"total":total,
                     "time_fee":fee,"food_fee":sess['total_food'],"discount":bill_discount,"promo_disc":promo_disc,
                     "cashier":cashier,"payment_method":payment_method,
@@ -741,6 +795,7 @@ def get_menu():
 @app.route("/api/order/add", methods=["POST"])
 def add_order():
     d=request.json; tid=int(d['table_id']); iid=int(d['item_id'])
+    cashier = d.get('cashier','ไม่ระบุ')
     conn=get_db_connection(); item=conn.execute("SELECT * FROM inventory WHERE id=?",(iid,)).fetchone()
     if item and item['stock_qty']>0:
         conn.execute("UPDATE inventory SET stock_qty=stock_qty-1 WHERE id=?",(iid,)); conn.commit()
@@ -752,6 +807,12 @@ def add_order():
         else: orders.append({"id":iid,"name":item['product_name'],"price":float(item['price']),"qty":1,"total_price":float(item['price'])})
         active_sessions[tid]['total_food']+=item['price']
         save_session(tid, active_sessions[tid])
+        try:
+            t_row = conn.execute("SELECT name FROM tables_config WHERE id=?", (tid,)).fetchone()
+            t_name = t_row['name'] if t_row else f"โต๊ะ {tid}"
+            log_activity('สั่งของ', t_name, f"{item['product_name']} x1 ({item['price']} ฿)", cashier)
+        except Exception as le:
+            print(f"[WARN] log_activity add_order: {le}")
         conn.close(); return jsonify({"status":"success"})
     conn.close(); return jsonify({"status":"error","msg":"สินค้าหมด"}),400
 
@@ -1385,23 +1446,64 @@ def get_cancel_logs():
         print(f"[ERROR] cancel_logs: {e}")
         return jsonify([])
 
+# ── ACTIVITY LOGS ────────────────────────────────────────────
+@app.route("/api/activity_logs")
+def get_activity_logs():
+    try:
+        conn = get_db_connection()
+        if IS_PG:
+            conn.execute("CREATE TABLE IF NOT EXISTS activity_logs (id SERIAL PRIMARY KEY, action_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
+        else:
+            conn.execute("CREATE TABLE IF NOT EXISTS activity_logs (id INTEGER PRIMARY KEY, action_type TEXT, table_name TEXT, detail TEXT, cashier TEXT, created_at TEXT)")
+        conn.commit()
+        df=request.args.get('date','')
+        q="SELECT * FROM activity_logs WHERE 1=1"; p=[]
+        if df: q+=" AND created_at LIKE ?"; p.append(f"{df}%")
+        q+=" ORDER BY id DESC LIMIT 500"
+        rows=[dict(r) for r in conn.execute(q,p).fetchall()]
+        conn.close()
+        return jsonify(rows)
+    except Exception as e:
+        print(f"[ERROR] activity_logs: {e}")
+        return jsonify([])
+
 # ── INVENTORY ────────────────────────────────────────────────
 @app.route("/api/inventory/update", methods=["POST"])
 def update_stock():
     d=request.json; conn=get_db_connection()
+    cashier = d.get('cashier','ไม่ระบุ')
+    item = conn.execute("SELECT product_name FROM inventory WHERE id=?", (int(d['id']),)).fetchone()
     conn.execute("UPDATE inventory SET stock_qty=stock_qty+? WHERE id=?",(int(d['qty']),int(d['id']))); conn.commit(); conn.close()
+    try:
+        pname = item['product_name'] if item else f"#{d['id']}"
+        log_activity('สินค้า/สต็อก', '', f"เติมสต็อก {pname} +{d['qty']} ชิ้น", cashier)
+    except Exception as le:
+        print(f"[WARN] log_activity update_stock: {le}")
     return jsonify({"status":"success"})
 
 @app.route("/api/inventory/new", methods=["POST"])
 def new_product():
     d=request.json; conn=get_db_connection()
+    cashier = d.get('cashier','ไม่ระบุ')
     conn.execute("INSERT INTO inventory (product_name,price,cost,stock_qty,category) VALUES (?,?,?,?,?)",
                  (d['name'],float(d['price']),float(d['cost']),int(d['qty']),d['category'])); conn.commit(); conn.close()
+    try:
+        log_activity('สินค้า/สต็อก', '', f"เพิ่มสินค้าใหม่ {d['name']} ({d['category']}) ราคา {d['price']} ฿ จำนวน {d['qty']}", cashier)
+    except Exception as le:
+        print(f"[WARN] log_activity new_product: {le}")
     return jsonify({"status":"success"})
 
 @app.route("/api/inventory/<int:item_id>", methods=["DELETE"])
 def delete_product(item_id):
-    conn=get_db_connection(); conn.execute("DELETE FROM inventory WHERE id=?",(item_id,)); conn.commit(); conn.close()
+    cashier = request.args.get('cashier','ไม่ระบุ')
+    conn=get_db_connection()
+    item = conn.execute("SELECT product_name FROM inventory WHERE id=?", (item_id,)).fetchone()
+    conn.execute("DELETE FROM inventory WHERE id=?",(item_id,)); conn.commit(); conn.close()
+    try:
+        pname = item['product_name'] if item else f"#{item_id}"
+        log_activity('สินค้า/สต็อก', '', f"ลบสินค้า {pname}", cashier)
+    except Exception as le:
+        print(f"[WARN] log_activity delete_product: {le}")
     return jsonify({"status":"success"})
 
 @app.route("/api/inventory/categories", methods=["GET","DELETE"])
@@ -1531,10 +1633,16 @@ def reset_rates():
 def manage_rates():
     conn=get_db_connection()
     if request.method=="POST":
+        cashier = request.args.get('cashier','ไม่ระบุ')
         for r in request.json:
             conn.execute("UPDATE rate_settings SET hourly_rate=?,start_hour=?,end_hour=? WHERE id=?",
                          (float(r['rate']),int(r['start_hour']),int(r['end_hour']),int(r['id'])))
-        conn.commit(); conn.close(); return jsonify({"status":"success"})
+        conn.commit(); conn.close()
+        try:
+            log_activity('ตั้งค่า/ราคา', '', f"แก้ไขเรทราคา {len(request.json)} ช่วงเวลา", cashier)
+        except Exception as le:
+            print(f"[WARN] log_activity rates: {le}")
+        return jsonify({"status":"success"})
     r=conn.execute("SELECT * FROM rate_settings").fetchall(); conn.close()
     return jsonify([dict(i) for i in r])
 
@@ -1543,9 +1651,16 @@ def manage_rates():
 def manage_settings():
     conn=get_db_connection()
     if request.method=="POST":
+        cashier = request.args.get('cashier','ไม่ระบุ')
+        keys_changed = list(request.json.keys())
         for k,v in request.json.items():
             conn.execute("INSERT INTO system_settings (setting_key,setting_value) VALUES (?,?) ON CONFLICT(setting_key) DO UPDATE SET setting_value=EXCLUDED.setting_value",(k,str(v)))
-        conn.commit(); conn.close(); return jsonify({"status":"success"})
+        conn.commit(); conn.close()
+        try:
+            log_activity('ตั้งค่า/ราคา', '', f"แก้ไขตั้งค่า: {', '.join(keys_changed)}", cashier)
+        except Exception as le:
+            print(f"[WARN] log_activity settings: {le}")
+        return jsonify({"status":"success"})
     r=conn.execute("SELECT * FROM system_settings").fetchall(); conn.close()
     return jsonify({i['setting_key']:i['setting_value'] for i in r})
 
