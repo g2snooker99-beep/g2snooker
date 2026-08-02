@@ -1851,16 +1851,28 @@ def get_dashboard():
     ch,cm=map(int,ct.split(':'))
     # created_at เก็บเป็น UTC (เวลาเซิร์ฟเวอร์) จึงต้องเทียบเวลาตัดยอดด้วย "เวลาไทยปัจจุบัน" (บวก TZ_OFFSET) แล้วแปลงกลับเป็น UTC ก่อน query
     now_th=datetime.now()+TZ_OFFSET
-    ctt_th=now_th.replace(hour=ch,minute=cm,second=0,microsecond=0)
-    if now_th<ctt_th:
-        ss_th=(now_th-timedelta(days=1)).replace(hour=ch,minute=cm,second=0,microsecond=0); sd=(now_th-timedelta(days=1)).strftime('%d/%m/%Y')
-    else:
-        ss_th=ctt_th; sd=now_th.strftime('%d/%m/%Y')
+    req_date = request.args.get('date','').strip()
+    ss_th = None
+    if req_date:
+        try:
+            base_date = datetime.strptime(req_date, '%Y-%m-%d')
+            ss_th = base_date.replace(hour=ch,minute=cm,second=0,microsecond=0)
+            sd = base_date.strftime('%d/%m/%Y')
+        except ValueError:
+            ss_th = None
+    if ss_th is None:
+        ctt_th=now_th.replace(hour=ch,minute=cm,second=0,microsecond=0)
+        if now_th<ctt_th:
+            ss_th=(now_th-timedelta(days=1)).replace(hour=ch,minute=cm,second=0,microsecond=0); sd=(now_th-timedelta(days=1)).strftime('%d/%m/%Y')
+        else:
+            ss_th=ctt_th; sd=now_th.strftime('%d/%m/%Y')
     ss=ss_th-TZ_OFFSET
+    se=ss+timedelta(days=1)
     sstr=ss.strftime('%Y-%m-%d %H:%M:%S')
-    bills=conn.execute("SELECT * FROM bills WHERE created_at>=? ORDER BY id DESC",(sstr,)).fetchall()
+    sestr=se.strftime('%Y-%m-%d %H:%M:%S')
+    bills=conn.execute("SELECT * FROM bills WHERE created_at>=? AND created_at<? ORDER BY id DESC",(sstr,sestr)).fetchall()
     sales=sum(b['total'] for b in bills)
-    exp=conn.execute("SELECT SUM(amount) FROM expenses WHERE created_at>=?",(sstr,)).fetchone()[0] or 0
+    exp=conn.execute("SELECT SUM(amount) FROM expenses WHERE created_at>=? AND created_at<?",(sstr,sestr)).fetchone()[0] or 0
     conn.close()
     cash_sales = sum(b['total'] for b in bills if (b.get('payment_method') or 'เงินสด')=='เงินสด')
     transfer_sales = sum(b['total'] for b in bills if (b.get('payment_method') or 'เงินสด')!='เงินสด')

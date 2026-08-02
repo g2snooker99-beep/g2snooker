@@ -217,6 +217,13 @@ h6.text-muted{color:#94a3b8 !important}
   </div>
 
   <div id="report-view" class="app-view">
+    <div class="card-panel mb-3">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3"><label class="small text-muted">เลือกวันที่ (รอบกะ)</label><input type="date" id="rep-date-picker" class="form-control custom-input" onchange="loadReport()"></div>
+        <div class="col-md-3"><button class="btn btn-info w-100 fw-bold mt-3" onclick="loadReport()"><i class="fa-solid fa-magnifying-glass me-1"></i>ค้นหา</button></div>
+        <div class="col-md-3"><button class="btn btn-outline-warning w-100 fw-bold mt-3" onclick="document.getElementById('rep-date-picker').value='';loadReport()"><i class="fa-solid fa-rotate-left me-1"></i>กะปัจจุบัน</button></div>
+      </div>
+    </div>
     <div class="row g-3 mb-3">
       <div class="col-md-4"><div class="card-panel text-center border-top border-success border-3"><h6 class="text-muted" id="rep-date-title">ยอดขายกะนี้</h6><h3 class="text-success" id="rep-sales">0 ฿</h3><div id="rep-pay-breakdown"></div></div></div>
       <div class="col-md-4"><div class="card-panel text-center border-top border-danger border-3"><h6 class="text-muted">รายจ่ายกะนี้</h6><h3 class="text-danger" id="rep-exp">0 ฿</h3></div></div>
@@ -2251,7 +2258,8 @@ async function addExpense(){
 
 // ─── REPORT ──────────────────────────────────────────────────
 async function loadReport(){
-  const r=await fetch('/api/report/dashboard');const d=await r.json();
+  const dp = document.getElementById('rep-date-picker')?.value || '';
+  const r=await fetch('/api/report/dashboard'+(dp?('?date='+dp):''));const d=await r.json();
   currentReportBills=d.daily_bills||[];startingCash=d.starting_cash||2000;
   document.getElementById('rep-date-title').innerText=`ยอดขาย (รอบกะ ${d.shift_date})`;
   document.getElementById('rep-sales').innerText=d.sales+" ฿";
