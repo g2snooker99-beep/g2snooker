@@ -1874,11 +1874,19 @@ def cron_daily_report():
         return jsonify({"error": "unauthorized"}), 403
     try:
         from datetime import datetime, timedelta
-        y = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         conn = get_db_connection()
+        # ใช้เวลาตัดยอดกะเดียวกับ Dashboard (day_cutoff_time) แทนการนับเที่ยงคืนตายตัว
+        r_ct = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='day_cutoff_time'").fetchone()
+        ct_str = r_ct['setting_value'] if r_ct and r_ct['setting_value'] else "06:00"
+        ch, cm = map(int, ct_str.split(':'))
+        now = datetime.now()
+        ctt = now.replace(hour=ch, minute=cm, second=0, microsecond=0)
+        cur_shift_start = (now - timedelta(days=1)).replace(hour=ch, minute=cm, second=0, microsecond=0) if now < ctt else ctt
+        period_start = cur_shift_start - timedelta(days=1)
+        period_end   = cur_shift_start
         bills = conn.execute(
             "SELECT total, time_fee, food_fee, created_at FROM bills WHERE created_at >= %s AND created_at < %s AND status = %s",
-            (y + "T00:00:00", y + "T23:59:59", "ชำระแล้ว")
+            (period_start.isoformat(), period_end.isoformat(), "ชำระแล้ว")
         ).fetchall()
 
         shifts = {"A": [0,0.0,0.0,0.0], "B": [0,0.0,0.0,0.0], "C": [0,0.0,0.0,0.0]}
@@ -1893,7 +1901,7 @@ def cron_daily_report():
             shifts[k][2] += float(b["time_fee"] or 0)
             shifts[k][3] += float(b["food_fee"] or 0)
 
-        yd = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
+        yd = period_start.strftime("%d/%m/%Y")
         labels = [("A","🌙 กะดึก 00:00–08:00"),("B","☀️ กะเช้า 08:00–16:00"),("C","🌆 กะเย็น 16:00–00:00")]
         gt = 0.0; gb = 0
         msg = f"📊 G2 SNOOKER — สรุปยอดขาย\n📅 {yd}\n━━━━━━━━━━━━━━\n"
