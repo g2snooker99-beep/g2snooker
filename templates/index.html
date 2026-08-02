@@ -2089,6 +2089,7 @@ function pdfCommonExport(container, filename){
   if(previewWin){
     previewWin.document.write('<body style="margin:0;background:#111;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;font-size:16px">กำลังสร้าง PDF...</body>');
   }
+  window.focus(); // ดึงโฟกัสกลับมาแท็บเดิม กัน browser หยุด render แท็บพื้นหลังระหว่างจับภาพ (สาเหตุหลักที่ PDF ว่างเปล่า)
   // ใช้ absolute + top ตามตำแหน่ง scroll ปัจจุบัน แทน fixed (html2canvas จับภาพ position:fixed ไม่แม่นยำ มักได้ภาพว่าง)
   const scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
   container.style.position='absolute';
@@ -2096,6 +2097,8 @@ function pdfCommonExport(container, filename){
   container.style.left='0';
   container.style.zIndex='999999';
   document.body.appendChild(container);
+  // หน่วงสั้นๆ ให้ browser reflow/repaint เสร็จสมบูรณ์ก่อนเริ่มจับภาพ (กันภาพว่างจากจังหวะ render ไม่ทัน)
+  setTimeout(function(){
   html2pdf().set({
     margin:10,
     filename:filename,
@@ -2115,6 +2118,7 @@ function pdfCommonExport(container, filename){
     if(previewWin && !previewWin.closed) previewWin.close();
     if(document.body.contains(container)) document.body.removeChild(container);
   });
+  }, 150);
 }
 function downloadHtmlAsPDF(htmlBody, filename){
   const container=document.createElement('div');
