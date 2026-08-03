@@ -2123,6 +2123,11 @@ async function viewBillDetails(bid){
   const bill=d.bill;const items=d.items;
   currentViewingBill={...bill,orders:items.map(i=>({name:i.name,qty:i.qty,price:i.price,total_price:i.total}))};
   document.getElementById('bill-detail-meta').innerText=`${bill.table_name} | ${toThaiDateTimeStr(bill.end_time)} | ${bill.cashier}`;
+  const durTxt=toDurationText(bill.start_time,bill.end_time);
+  document.getElementById('bill-detail-info').innerHTML=
+    `⏱ เปิดโต๊ะ: ${toThaiHHMM(bill.start_time)} น. &nbsp;→&nbsp; ปิดโต๊ะ: ${toThaiHHMM(bill.end_time)} น.`+
+    (durTxt?` &nbsp;(เล่นไป ${durTxt})`:'')+
+    (bill.payment_method?`<br>💳 ชำระโดย: ${bill.payment_method}`:'');
   let html='';
   if((bill.time_fee||0)>0)html+=`<tr><td class="text-warning">ค่าโต๊ะสนุ๊ก</td><td>1</td><td>${(bill.time_fee||0).toFixed(2)}</td><td class="text-warning">${(bill.time_fee||0).toFixed(2)}</td></tr>`;
   html+=items.map(i=>`<tr><td>${i.name}</td><td>${i.qty}</td><td>${i.price} ฿</td><td class="text-info">${i.total} ฿</td></tr>`).join('');
