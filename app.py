@@ -1609,7 +1609,31 @@ def manage_expenses():
         conn.execute("INSERT INTO expenses (category,amount,note,created_by,created_at) VALUES (?,?,?,?,?)",
                      (d['category'],float(d['amount']),d['note'],d['cashier'],exp_dt.isoformat()))
         conn.commit(); conn.close(); return jsonify({"status":"success"})
-    e=conn.execute("SELECT * FROM expenses ORDER BY id DESC LIMIT 30").fetchall(); conn.close()
+    # GET: กรองรายการรายจ่ายตาม "รอบกะ" เดียวกับหน้ารายงาน (ตัดยอดตาม day_cutoff_time)
+    # แทนที่จะดึง 30 รายการล่าสุดแบบไม่สนวันที่ (ซึ่งทำให้รายการค้ามข้ามกะ)
+    r1=conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='day_cutoff_time'").fetchone()
+    ct=r1['setting_value'] if r1 else "06:00"
+    ch,cm=map(int,ct.split(':'))
+    now_th=datetime.now()+TZ_OFFSET
+    req_date=request.args.get('date','').strip()
+    ss_th=None
+    if req_date:
+        try:
+            base_date=datetime.strptime(req_date,'%Y-%m-%d')
+            ss_th=base_date.replace(hour=ch,minute=cm,second=0,microsecond=0)
+        except ValueError:
+            ss_th=None
+    if ss_th is None:
+        ctt_th=now_th.replace(hour=ch,minute=cm,second=0,microsecond=0)
+        if now_th<ctt_th:
+            ss_th=(now_th-timedelta(days=1)).replace(hour=ch,minute=cm,second=0,microsecond=0)
+        else:
+            ss_th=ctt_th
+    se_th=ss_th+timedelta(days=1)
+    ss=(ss_th-TZ_OFFSET).strftime('%Y-%m-%d %H:%M:%S')
+    se=(se_th-TZ_OFFSET).strftime('%Y-%m-%d %H:%M:%S')
+    e=conn.execute("SELECT * FROM expenses WHERE created_at>=? AND created_at<? ORDER BY id DESC",(ss,se)).fetchall()
+    conn.close()
     return jsonify([dict(i) for i in e])
 
 

@@ -207,6 +207,10 @@ h6.text-muted{color:#94a3b8 !important}
       </div>
       <div class="col-md-8">
         <div class="card-panel h-100">
+          <div class="row g-2 align-items-end mb-3">
+            <div class="col-md-4"><label class="small text-muted">เลือกวันที่ (รอบกะ)</label><input type="date" id="exp-view-date" class="form-control custom-input" onchange="loadExpenses()"></div>
+            <div class="col-md-3"><button class="btn btn-outline-warning w-100 fw-bold" onclick="document.getElementById('exp-view-date').value='';loadExpenses()"><i class="fa-solid fa-rotate-left me-1"></i>กะปัจจุบัน</button></div>
+          </div>
           <table class="table table-premium text-center">
             <thead><tr><th>วันที่</th><th>เวลา</th><th>หมวดหมู่</th><th>รายละเอียด</th><th>ยอดเงิน</th><th>ผู้บันทึก</th></tr></thead>
             <tbody id="exp-table-body"></tbody>
@@ -2148,6 +2152,13 @@ function toThaiHHMM(isoStr){
   if(isNaN(d.getTime())) return '-';
   return d.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',hour12:false});
 }
+function toThaiDateStr(isoStr){
+  if(!isoStr) return '-';
+  const s = isoStr.endsWith('Z') ? isoStr : isoStr+'Z';
+  const d = new Date(s);
+  if(isNaN(d.getTime())) return '-';
+  return d.toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'numeric'});
+}
 function toThaiDateTimeStr(isoStr){
   if(!isoStr) return '-';
   const s = isoStr.endsWith('Z') ? isoStr : isoStr+'Z';
@@ -2306,9 +2317,10 @@ async function deleteProduct(id, name){
 
 // ─── EXPENSES ────────────────────────────────────────────────
 async function loadExpenses(){
-  const r=await fetch('/api/expenses');const d=await r.json();
+  const dp=document.getElementById('exp-view-date')?.value||'';
+  const r=await fetch('/api/expenses'+(dp?('?date='+dp):''));const d=await r.json();
   document.getElementById('exp-table-body').innerHTML=d.map(e=>
-    `<tr><td>${toThaiHHMM(e.created_at)}</td><td>${e.category}</td><td>${e.note}</td><td class="text-danger fw-bold">${e.amount}</td><td>${e.created_by}</td></tr>`
+    `<tr><td>${toThaiDateStr(e.created_at)}</td><td>${toThaiHHMM(e.created_at)}</td><td>${e.category}</td><td>${e.note}</td><td class="text-danger fw-bold">${e.amount}</td><td>${e.created_by}</td></tr>`
   ).join('');
 }
 async function addExpense(){
