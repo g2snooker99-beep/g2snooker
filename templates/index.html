@@ -98,6 +98,7 @@ h6.text-muted{color:#94a3b8 !important}
     <button class="sidebar-btn" id="btn-activity-log" onclick="switchView('activity-log-view',this);loadActivityLogs()"><i class="fa-solid fa-star me-2"></i>ประวัติการใช้งาน</button>
     <button class="sidebar-btn" id="btn-history" onclick="switchView('history-view',this);loadBills()"><i class="fa-solid fa-receipt me-2"></i>บิลย้อนหลัง</button>
     <button class="sidebar-btn" id="btn-inventory" onclick="switchView('inventory-view',this);loadInventory()"><i class="fa-solid fa-boxes-stacked me-2"></i>จัดการสต๊อก</button>
+    <button class="sidebar-btn" id="btn-stockcheck" onclick="switchView('stockcheck-view',this);loadStockCheckLive()"><i class="fa-solid fa-clipboard-check me-2"></i>เช็คสต๊อก</button>
     <button class="sidebar-btn" id="btn-expense" onclick="switchView('expense-view',this);loadExpenses()"><i class="fa-solid fa-wallet me-2"></i>บันทึกรายจ่าย</button>
     <button class="sidebar-btn" id="btn-report" onclick="switchView('report-view',this);loadReport()"><i class="fa-solid fa-chart-pie me-2"></i>สรุปรายงานกะ</button>
     <button class="sidebar-btn" id="btn-schedule" onclick="switchView('schedule-view',this);loadScheduleView()"><i class="fa-solid fa-calendar-days me-2"></i>ตารางงานพนักงาน</button>
@@ -199,6 +200,33 @@ h6.text-muted{color:#94a3b8 !important}
     </div>
   </div>
 
+  <div id="stockcheck-view" class="app-view">
+    <ul class="nav nav-tabs mb-3">
+      <li class="nav-item"><button class="nav-link active text-warning" id="stk-tab-count-btn" onclick="showStockTab('count')">📋 นับสต๊อก</button></li>
+      <li class="nav-item"><button class="nav-link text-warning" id="stk-tab-history-btn" onclick="showStockTab('history');loadStockCheckHistory()">🕐 ประวัติ</button></li>
+    </ul>
+    <div id="stk-tab-count">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="text-warning mb-0">นับสต๊อกเทียบกับระบบ POS</h6>
+        <button class="btn btn-warning btn-sm fw-bold" onclick="saveStockCheck()"><i class="fa-solid fa-floppy-disk me-1"></i>บันทึกรอบเช็คสต๊อก</button>
+      </div>
+      <div class="card-panel">
+        <table class="table table-premium text-center align-middle">
+          <thead><tr><th>หมวดหมู่</th><th>ชื่อสินค้า</th><th>จำนวนใน POS</th><th>จำนวนนับจริง</th><th>ผลต่าง</th></tr></thead>
+          <tbody id="stock-check-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+    <div id="stk-tab-history" style="display:none">
+      <h6 class="text-warning mb-2">ประวัติการเช็คสต๊อก</h6>
+      <div class="card-panel">
+        <table class="table table-premium text-center align-middle">
+          <thead><tr><th>วันที่</th><th>ผู้เช็ค</th><th>สถานะ</th><th>รายการ</th></tr></thead>
+          <tbody id="stock-check-history-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
   <div id="expense-view" class="app-view">
     <div class="row">
       <div class="col-md-4">
@@ -3983,6 +4011,150 @@ function addFutureLineSlot(){
   container.appendChild(div);
   futureLineCount++;
 }
+
+// ─── STOCK CHECK ─────────────────────────────────────────────
+let stockCheckLiveData = [];
+let stockCheckLiveTimer = null;
+let _viewingCheckId = null;
+
+function showStockTab(t){
+  document.getElementById('stk-tab-count').style.display = (t==='count')?'block':'none';
+  document.getElementById('stk-tab-history').style.display = (t==='history')?'block':'none';
+  document.getElementById('stk-tab-count-btn').classList.toggle('active', t==='count');
+  document.getElementById('stk-tab-history-btn').classList.toggle('active', t==='history');
+}
+
+async function loadStockCheckLive(){
+  try{
+    const res = await fetch('/api/stock_check/live');
+    const data = await res.json();
+    // เก็บจำนวนนับจริงเดิมไว้ ถ้าพนักงานกรอกอยู่แล้วไม่ให้หาย ตอน poll รอบใหม่
+    const prevActual = {};
+    stockCheckLiveData.forEach(it=>{ prevActual[it.id] = it._actual; });
+    stockCheckLiveData = data.map(it=>({...it, _actual: prevActual[it.id] !== undefined ? prevActual[it.id] : ''}));
+    renderStockCheckTable();
+  }catch(e){ console.error('loadStockCheckLive', e); }
+  clearTimeout(stockCheckLiveTimer);
+  stockCheckLiveTimer = setTimeout(loadStockCheckLive, 15000);
+}
+
+function renderStockCheckTable(){
+  const tb = document.getElementById('stock-check-table-body');
+  if(!tb) return;
+  tb.innerHTML = stockCheckLiveData.map(it=>{
+    const diff = (it._actual==='' || it._actual===null) ? '' : (parseFloat(it._actual) - parseFloat(it.stock_qty));
+    let diffHtml = '<span class="text-muted">-</span>';
+    if(diff !== ''){
+      if(diff === 0) diffHtml = '<span class="text-success fw-bold">0 ✅</span>';
+      else if(diff < 0) diffHtml = '<span class="text-danger fw-bold">'+diff+' ⚠️</span>';
+      else diffHtml = '<span class="text-info fw-bold">+'+diff+' 🔵</span>';
+    }
+    return '<tr>'
+      + '<td>'+(it.category||'-')+'</td>'
+      + '<td class="text-start">'+it.product_name+'</td>'
+      + '<td>'+it.stock_qty+'</td>'
+      + '<td><input type="number" class="form-control custom-input text-center" style="max-width:100px;margin:auto" value="'+it._actual+'" oninput="updateStockActual('+it.id+',this.value)"></td>'
+      + '<td id="stock-diff-'+it.id+'">'+diffHtml+'</td>'
+      + '</tr>';
+  }).join('');
+}
+
+function updateStockActual(id, val){
+  const it = stockCheckLiveData.find(x=>x.id===id);
+  if(!it) return;
+  it._actual = val;
+  const diff = (val==='' ) ? '' : (parseFloat(val) - parseFloat(it.stock_qty));
+  const cell = document.getElementById('stock-diff-'+id);
+  if(!cell) return;
+  if(diff===''){ cell.innerHTML = '<span class="text-muted">-</span>'; return; }
+  if(diff===0) cell.innerHTML = '<span class="text-success fw-bold">0 ✅</span>';
+  else if(diff<0) cell.innerHTML = '<span class="text-danger fw-bold">'+diff+' ⚠️</span>';
+  else cell.innerHTML = '<span class="text-info fw-bold">+'+diff+' 🔵</span>';
+}
+
+function saveStockCheck(){
+  const items = stockCheckLiveData.filter(it=>it._actual!=='' && it._actual!==null).map(it=>({
+    product_id: it.id, product_name: it.product_name,
+    pos_qty_at_check: it.stock_qty, actual_qty: parseFloat(it._actual)
+  }));
+  if(items.length===0){ alert('กรุณากรอกจำนวนนับจริงอย่างน้อย 1 รายการ'); return; }
+  reqPin('ยืนยันรอบเช็คสต๊อก', 'ใส่รหัสพินของคุณเพื่อบันทึกรอบเช็คสต๊อกนี้', '📋', async ()=>{
+    try{
+      const res = await fetch('/api/stock_check/save', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ pin: currentPin, items })
+      });
+      const rd = await res.json();
+      if(rd.status==='success'){
+        alert('บันทึกรอบเช็คสต๊อกสำเร็จ (ผู้เช็ค: '+rd.checked_by+')');
+        stockCheckLiveData.forEach(it=>it._actual='');
+        renderStockCheckTable();
+      } else {
+        alert('เกิดข้อผิดพลาด: '+(rd.msg||''));
+      }
+    }catch(e){ alert('เกิดข้อผิดพลาดในการบันทึก'); console.error(e); }
+  });
+}
+
+async function loadStockCheckHistory(){
+  try{
+    const res = await fetch('/api/stock_check/history');
+    const rows = await res.json();
+    const tb = document.getElementById('stock-check-history-body');
+    if(rows.length===0){ tb.innerHTML = '<tr><td colspan="4" class="text-muted">ยังไม่มีประวัติการเช็คสต๊อก</td></tr>'; return; }
+    tb.innerHTML = rows.map(r=>{
+      const statusHtml = r.status==='confirmed'
+        ? '<span class="text-success">✅ ปรับสต๊อกแล้ว</span>'
+        : '<span class="text-warning">⏳ รอยืนยัน</span>';
+      const dt = new Date(r.created_at).toLocaleString('th-TH');
+      return '<tr>'
+        + '<td>'+dt+'</td>'
+        + '<td>'+r.checked_by+'</td>'
+        + '<td>'+statusHtml+'</td>'
+        + '<td><button class="btn btn-sm btn-outline-warning" onclick="viewStockCheckDetail('+r.id+')">ดูรายละเอียด</button></td>'
+        + '</tr>';
+    }).join('');
+  }catch(e){ console.error('loadStockCheckHistory', e); }
+}
+
+async function viewStockCheckDetail(checkId){
+  try{
+    const res = await fetch('/api/stock_check/'+checkId);
+    const rd = await res.json();
+    _viewingCheckId = checkId;
+    document.getElementById('stock-detail-title').innerText = 'รอบเช็คสต๊อก #'+checkId+' — '+rd.check.checked_by;
+    document.getElementById('stock-detail-body').innerHTML = rd.items.map(it=>{
+      const diffHtml = it.diff===0 ? '<span class="text-success">0</span>'
+        : it.diff<0 ? '<span class="text-danger">'+it.diff+'</span>'
+        : '<span class="text-info">+'+it.diff+'</span>';
+      return '<tr><td class="text-start">'+it.product_name+'</td><td>'+it.pos_qty_at_check+'</td><td>'+it.actual_qty+'</td><td>'+diffHtml+'</td></tr>';
+    }).join('');
+    const btn = document.getElementById('stock-detail-confirm-btn');
+    btn.style.display = (rd.check.status==='confirmed') ? 'none' : 'inline-block';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('stockDetailModal')).show();
+  }catch(e){ alert('โหลดรายละเอียดไม่สำเร็จ'); console.error(e); }
+}
+
+function confirmStockCheckFromModal(){
+  if(!_viewingCheckId) return;
+  const checkId = _viewingCheckId;
+  reqPin('ยืนยันปรับสต๊อก', 'ใส่รหัสพินเพื่อยืนยันปรับสต๊อกให้ตรงกับรอบเช็คนี้ทั้งหมด', '✅', async ()=>{
+    try{
+      const res = await fetch('/api/stock_check/'+checkId+'/confirm', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ confirmed_by: _pinConfirmerName || currentUser })
+      });
+      const rd = await res.json();
+      if(rd.status==='success'){
+        alert('ปรับสต๊อกสำเร็จ '+rd.adjusted_items+' รายการ');
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('stockDetailModal')).hide();
+        loadStockCheckHistory();
+      } else {
+        alert('เกิดข้อผิดพลาด: '+(rd.msg||''));
+      }
+    }catch(e){ alert('เกิดข้อผิดพลาดในการยืนยัน'); console.error(e); }
+  });
+}
 </script>
 
 <!-- Cancel Reason Modal -->
@@ -4008,6 +4180,27 @@ function addFutureLineSlot(){
       <div class="modal-footer" style="border-top:1px solid #333">
         <button class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
         <button class="btn btn-danger fw-bold" onclick="confirmCancelTable()">✅ ยืนยันยกเลิก</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="stockDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content bg-dark text-white">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title" id="stock-detail-title">รายละเอียดรอบเช็คสต๊อก</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <table class="table table-premium text-center align-middle">
+          <thead><tr><th>สินค้า</th><th>จำนวนใน POS ตอนนับ</th><th>จำนวนนับจริง</th><th>ผลต่าง</th></tr></thead>
+          <tbody id="stock-detail-body"></tbody>
+        </table>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+        <button class="btn btn-warning fw-bold" id="stock-detail-confirm-btn" onclick="confirmStockCheckFromModal()"><i class="fa-solid fa-check me-1"></i>ยืนยันปรับสต๊อกทั้งรอบ</button>
       </div>
     </div>
   </div>
