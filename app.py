@@ -900,6 +900,104 @@ def remove_order():
     save_session(tid, active_sessions[tid])
     return jsonify({"status":"success"})
 
+# ── STOCK CHECK ──────────────────────────────────────────────
+@app.route("/api/stock_check/live")
+def stock_check_live():
+    conn = get_db_connection()
+    rows = conn.execute("SELECT id, product_name, category, stock_qty FROM inventory ORDER BY category, product_name").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/stock_check/save", methods=["POST"])
+def stock_check_save():
+    d = request.json or {}
+    pin = d.get('pin','').strip()
+    items = d.get('items', [])
+    if not pin:
+        return jsonify({"status":"error","msg":"กรุณาใส่รหัสพิน"}),400
+    conn = get_db_connection()
+    emp = conn.execute("SELECT * FROM employees WHERE pin=?", (pin,)).fetchone()
+    if not emp:
+        conn.close()
+        return jsonify({"status":"error","msg":"รหัสพินไม่ถูกต้อง"}),401
+    if not items:
+        conn.close()
+        return jsonify({"status":"error","msg":"ไม่มีรายการที่นับ"}),400
+    now_iso = datetime.now().isoformat()
+    if IS_PG:
+        import psycopg2.extras
+        raw = conn._raw.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        raw.execute("INSERT INTO stock_checks (checked_by,created_at,status) VALUES (%s,%s,'pending') RETURNING id",
+                    (emp['name'], now_iso))
+        check_id = raw.fetchone()['id']
+        for it in items:
+            pos_qty = float(it.get('pos_qty_at_check',0) or 0)
+            actual_qty = float(it.get('actual_qty',0) or 0)
+            diff = actual_qty - pos_qty
+            raw.execute("INSERT INTO stock_check_items (check_id,product_id,product_name,pos_qty_at_check,actual_qty,diff) VALUES (%s,%s,%s,%s,%s,%s)",
+                        (check_id, it.get('product_id'), it.get('product_name',''), pos_qty, actual_qty, diff))
+    else:
+        raw = conn._raw.cursor()
+        raw.execute("INSERT INTO stock_checks (checked_by,created_at,status) VALUES (?,?,'pending')",
+                    (emp['name'], now_iso))
+        check_id = raw.lastrowid
+        for it in items:
+            pos_qty = float(it.get('pos_qty_at_check',0) or 0)
+            actual_qty = float(it.get('actual_qty',0) or 0)
+            diff = actual_qty - pos_qty
+            raw.execute("INSERT INTO stock_check_items (check_id,product_id,product_name,pos_qty_at_check,actual_qty,diff) VALUES (?,?,?,?,?,?)",
+                        (check_id, it.get('product_id'), it.get('product_name',''), pos_qty, actual_qty, diff))
+    conn.commit(); conn.close()
+    try:
+        log_activity('เช็คสต๊อก', '', f"บันทึกรอบเช็คสต๊อก {len(items)} รายการ", emp['name'])
+    except Exception as le:
+        print(f"[WARN] log_activity stock_check: {le}")
+    return jsonify({"status":"success","check_id":check_id,"checked_by":emp['name']})
+
+@app.route("/api/stock_check/history")
+def stock_check_history():
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM stock_checks ORDER BY id DESC").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/stock_check/<int:check_id>")
+def stock_check_detail(check_id):
+    conn = get_db_connection()
+    head = conn.execute("SELECT * FROM stock_checks WHERE id=?", (check_id,)).fetchone()
+    if not head:
+        conn.close()
+        return jsonify({"status":"error","msg":"ไม่พบรอบเช็คสต๊อก"}),404
+    items = conn.execute("SELECT * FROM stock_check_items WHERE check_id=? ORDER BY id", (check_id,)).fetchall()
+    conn.close()
+    return jsonify({"check": dict(head), "items":[dict(i) for i in items]})
+
+@app.route("/api/stock_check/<int:check_id>/confirm", methods=["POST"])
+def stock_check_confirm(check_id):
+    d = request.json or {}
+    confirmed_by = d.get('confirmed_by','ไม่ระบุ')
+    conn = get_db_connection()
+    head = conn.execute("SELECT * FROM stock_checks WHERE id=?", (check_id,)).fetchone()
+    if not head:
+        conn.close()
+        return jsonify({"status":"error","msg":"ไม่พบรอบเช็คสต๊อก"}),404
+    if head['status'] == 'confirmed':
+        conn.close()
+        return jsonify({"status":"error","msg":"รอบนี้ถูกยืนยันปรับสต๊อกไปแล้ว"}),400
+    items = conn.execute("SELECT * FROM stock_check_items WHERE check_id=?", (check_id,)).fetchall()
+    for it in items:
+        if it['product_id']:
+            conn.execute("UPDATE inventory SET stock_qty=? WHERE id=?", (it['actual_qty'], it['product_id']))
+    now_iso = datetime.now().isoformat()
+    conn.execute("UPDATE stock_checks SET status='confirmed', confirmed_by=?, confirmed_at=? WHERE id=?",
+                 (confirmed_by, now_iso, check_id))
+    conn.commit(); conn.close()
+    try:
+        log_activity('ยืนยันปรับสต๊อก', '', f"ปรับสต๊อกตามรอบเช็ค #{check_id} ({len(items)} รายการ)", confirmed_by)
+    except Exception as le:
+        print(f"[WARN] log_activity confirm stock: {le}")
+    return jsonify({"status":"success","adjusted_items":len(items)})
+
 # ── TABLE NOTE ───────────────────────────────────────────────
 @app.route("/api/table/note", methods=["POST"])
 def set_table_note():
