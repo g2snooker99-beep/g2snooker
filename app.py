@@ -627,7 +627,7 @@ def get_tables():
                 cap=s['start']+timedelta(minutes=s['limit_mins'])
                 if now>cap: now=cap
             fee = calc_fee(s['start'], now, rates, discounts, s.get('price_mode'))
-        res[tid]={"id":tid,"name":t['name'],"type":t['type'],"active":s['active'],"orders":s['orders'],
+        res[tid]={"id":tid,"name":t['name'],"type":t['type'],"sort_order":t['sort_order'] if 'sort_order' in t.keys() else tid,"active":s['active'],"orders":s['orders'],
                   "total_food":s.get('total_food',0),
                   "start":s['start'].isoformat() if s['start'] else None,
                   "start_ts":s['start'].timestamp() if s['start'] else None,
