@@ -1507,7 +1507,7 @@ def send_relay(table_number, state):
             auth={"username": "G2board", "password": "Aa250899"},
             tls={"tls_version": _ssl.PROTOCOL_TLS_CLIENT},
             client_id=f"g2pos-{table_number}",
-            keepalive=3,
+            keepalive=15,
         )
     except Exception as e:
         print(f"[WARN] Relay MQTT table {table_number}: {e}")
