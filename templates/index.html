@@ -236,9 +236,10 @@ h6.text-muted{color:#94a3b8 !important}
       </div>
     </div>
     <div class="row g-3 mb-3">
-      <div class="col-md-4"><div class="card-panel text-center border-top border-success border-3"><h6 class="text-muted" id="rep-date-title">ยอดขายกะนี้</h6><h3 class="text-success" id="rep-sales">0 ฿</h3><div id="rep-pay-breakdown"></div></div></div>
-      <div class="col-md-4"><div class="card-panel text-center border-top border-danger border-3"><h6 class="text-muted">รายจ่ายกะนี้</h6><h3 class="text-danger" id="rep-exp">0 ฿</h3></div></div>
-      <div class="col-md-4"><div class="card-panel text-center border-top border-info border-3"><h6 class="text-muted">คงเหลือสุทธิ</h6><h3 class="text-info" id="rep-net">0 ฿</h3></div></div>
+      <div class="col-md-3"><div class="card-panel text-center border-top border-success border-3"><h6 class="text-muted" id="rep-date-title">ยอดขายกะนี้</h6><h3 class="text-success" id="rep-sales">0 ฿</h3><div id="rep-pay-breakdown"></div></div></div>
+      <div class="col-md-3"><div class="card-panel text-center border-top border-danger border-3"><h6 class="text-muted">รายจ่ายกะนี้</h6><h3 class="text-danger" id="rep-exp">0 ฿</h3></div></div>
+      <div class="col-md-3"><div class="card-panel text-center border-top border-info border-3"><h6 class="text-muted">คงเหลือสุทธิ</h6><h3 class="text-info" id="rep-net">0 ฿</h3></div></div>
+      <div class="col-md-3"><div class="card-panel text-center border-top border-warning border-3"><h6 class="text-muted">รอชำระ</h6><h3 class="text-warning" id="rep-pending">0 ฿</h3></div></div>
     </div>
     <div class="card-panel mb-3"><canvas id="salesChart" height="50"></canvas></div>
     <div class="card-panel">
@@ -2378,6 +2379,7 @@ async function loadReport(){
   document.getElementById('rep-sales').innerText=d.sales+" ฿";
   document.getElementById('rep-exp').innerText=d.expenses+" ฿";
   document.getElementById('rep-net').innerText=d.net+" ฿";
+  document.getElementById('rep-pending').innerText=d.pending_total+" ฿";
   document.getElementById('shift-starting').innerText=startingCash.toLocaleString()+" ฿";
   document.getElementById('shift-sales').innerText=d.sales+" ฿";
   document.getElementById('shift-exp').innerText=d.expenses+" ฿";
