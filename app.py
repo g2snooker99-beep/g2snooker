@@ -1509,8 +1509,11 @@ def send_relay(table_number, state):
             client_id=f"g2pos-{table_number}",
             keepalive=15,
         )
+        return True, None
     except Exception as e:
-        print(f"[WARN] Relay MQTT table {table_number}: {e}")
+        err_msg = f"{type(e).__name__}: {e}"
+        print(f"[WARN] Relay MQTT table {table_number}: {err_msg}")
+        return False, err_msg
 
 @app.route("/api/relay/test", methods=["POST"])
 def relay_test():
@@ -1530,8 +1533,11 @@ def relay_control():
     d = request.json
     table = int(d.get("table", 1))
     state = d.get("state", "off")
-    send_relay(table, state)
-    return jsonify({"status":"success","table":table,"state":state})
+    ok, err = send_relay(table, state)
+    if ok:
+        return jsonify({"status":"success","table":table,"state":state})
+    else:
+        return jsonify({"status":"error","table":table,"state":state,"mqtt_error":err}), 500
 
 # ── SPECIAL HOLIDAYS ─────────────────────────────────────────
 @app.route("/api/holidays", methods=["GET","POST","DELETE"])
