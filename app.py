@@ -1962,7 +1962,17 @@ def get_dashboard():
     bills=conn.execute("SELECT * FROM bills WHERE created_at>=? AND created_at<? AND status=? ORDER BY id DESC",(sstr,sestr,"ชำระแล้ว")).fetchall()
     sales=sum(b['total'] for b in bills)
     exp=conn.execute("SELECT SUM(amount) FROM expenses WHERE created_at>=? AND created_at<?",(sstr,sestr)).fetchone()[0] or 0
-    pending_total = sum(b["total"] for b in conn.execute("SELECT total FROM bills WHERE created_at>=? AND created_at<? AND status=?",(sstr,sestr,"รอชำระ")).fetchall())
+    rates_p_dash = conn.execute("SELECT * FROM rate_settings").fetchall()
+    sess_rows_dash = conn.execute("SELECT a.table_id, a.start_time, a.total_food, t.type AS ttype FROM active_sessions_db a LEFT JOIN tables_config t ON t.id = a.table_id").fetchall()
+    pending_total = 0.0
+    for s_d in sess_rows_dash:
+        pending_total += float(s_d["total_food"] or 0)
+        if s_d["ttype"] == "snooker" and s_d["start_time"]:
+            try:
+                stt_d = datetime.fromisoformat(s_d["start_time"])
+                pending_total += float(calc_fee(stt_d, datetime.now(), rates_p_dash) or 0)
+            except Exception:
+                pass
     conn.close()
     cash_sales = sum(b['total'] for b in bills if (b.get('payment_method') or 'เงินสด')=='เงินสด')
     transfer_sales = sum(b['total'] for b in bills if (b.get('payment_method') or 'เงินสด')!='เงินสด')
