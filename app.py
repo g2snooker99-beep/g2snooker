@@ -907,6 +907,16 @@ def debug_fix_sort_order():
     if secret != "g2_cron_2026":
         return jsonify({"error": "unauthorized"}), 403
     conn = get_db_connection()
+    try:
+        if IS_PG:
+            conn.execute("ALTER TABLE tables_config ADD COLUMN IF NOT EXISTS sort_order INTEGER")
+        else:
+            existing = [r[1] for r in conn._raw.cursor().execute("PRAGMA table_info(tables_config)").fetchall()]
+            if 'sort_order' not in existing:
+                conn.execute("ALTER TABLE tables_config ADD COLUMN sort_order INTEGER")
+        conn.commit()
+    except Exception as e:
+        return jsonify({"error": f"add column failed: {e}"}), 500
     mapping = {3:1, 5:2, 1:3, 2:4, 4:5}
     for table_id, order in mapping.items():
         conn.execute("UPDATE tables_config SET sort_order=? WHERE id=?", (order, table_id))
