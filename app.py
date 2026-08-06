@@ -1959,14 +1959,15 @@ def get_dashboard():
     se=ss+timedelta(days=1)
     sstr=ss.strftime('%Y-%m-%d %H:%M:%S')
     sestr=se.strftime('%Y-%m-%d %H:%M:%S')
-    bills=conn.execute("SELECT * FROM bills WHERE created_at>=? AND created_at<? ORDER BY id DESC",(sstr,sestr)).fetchall()
+    bills=conn.execute("SELECT * FROM bills WHERE created_at>=? AND created_at<? AND status=? ORDER BY id DESC",(sstr,sestr,"ชำระแล้ว")).fetchall()
     sales=sum(b['total'] for b in bills)
     exp=conn.execute("SELECT SUM(amount) FROM expenses WHERE created_at>=? AND created_at<?",(sstr,sestr)).fetchone()[0] or 0
+    pending_total = sum(b["total"] for b in conn.execute("SELECT total FROM bills WHERE created_at>=? AND created_at<? AND status=?",(sstr,sestr,"รอชำระ")).fetchall())
     conn.close()
     cash_sales = sum(b['total'] for b in bills if (b.get('payment_method') or 'เงินสด')=='เงินสด')
     transfer_sales = sum(b['total'] for b in bills if (b.get('payment_method') or 'เงินสด')!='เงินสด')
     return jsonify({"sales":round(sales,2),"expenses":round(float(exp),2),"net":round(sales-float(exp),2),
-                    "cash_sales":round(cash_sales,2),"transfer_sales":round(transfer_sales,2),
+                    "cash_sales":round(cash_sales,2),"transfer_sales":round(transfer_sales,2),"pending_total":round(pending_total,2),
                     "shift_date":sd,"starting_cash":sc,"daily_bills":[dict(b) for b in bills]})
     # ── LINE WEBHOOK (ระบบเช็คอินด้วยรูปภาพ) ──────────────────────────────────
 
