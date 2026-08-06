@@ -900,31 +900,6 @@ def remove_order():
     save_session(tid, active_sessions[tid])
     return jsonify({"status":"success"})
 
-# ── TEMP: FIX SORT ORDER (ลบทิ้งหลังใช้เสร็จ) ─────────────────
-@app.route("/api/debug/fix_sort_order")
-def debug_fix_sort_order():
-    secret = request.args.get("key", "")
-    if secret != "g2_cron_2026":
-        return jsonify({"error": "unauthorized"}), 403
-    conn = get_db_connection()
-    try:
-        if IS_PG:
-            conn.execute("ALTER TABLE tables_config ADD COLUMN IF NOT EXISTS sort_order INTEGER")
-        else:
-            existing = [r[1] for r in conn._raw.cursor().execute("PRAGMA table_info(tables_config)").fetchall()]
-            if 'sort_order' not in existing:
-                conn.execute("ALTER TABLE tables_config ADD COLUMN sort_order INTEGER")
-        conn.commit()
-    except Exception as e:
-        return jsonify({"error": f"add column failed: {e}"}), 500
-    mapping = {3:1, 5:2, 1:3, 2:4, 4:5}
-    for table_id, order in mapping.items():
-        conn.execute("UPDATE tables_config SET sort_order=? WHERE id=?", (order, table_id))
-    conn.commit()
-    rows = conn.execute("SELECT id, name, sort_order FROM tables_config ORDER BY sort_order").fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
-
 # ── STOCK CHECK ──────────────────────────────────────────────
 @app.route("/api/stock_check/live")
 def stock_check_live():
