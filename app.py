@@ -2222,6 +2222,19 @@ def line_webhook():
                     shf[kk][0] += 1
                     shf[kk][1] += float(b["total"] or 0)
                 labs = [("A","🌙 ดึก 00-08"),("B","☀️ เช้า 08-16"),("C","🌆 เย็น 16-00")]
+                rates_p_today = conn.execute("SELECT * FROM rate_settings").fetchall()
+                sess_rows_today = conn.execute("SELECT a.table_id, a.start_time, a.total_food, t.type AS ttype FROM active_sessions_db a LEFT JOIN tables_config t ON t.id = a.table_id").fetchall()
+                pend_total_today = 0.0
+                pend_count_today = 0
+                for s_t in sess_rows_today:
+                    pend_count_today += 1
+                    pend_total_today += float(s_t["total_food"] or 0)
+                    if s_t["ttype"] == "snooker" and s_t["start_time"]:
+                        try:
+                            stt_t = datetime.fromisoformat(s_t["start_time"])
+                            pend_total_today += float(calc_fee(stt_t, datetime.now(), rates_p_today) or 0)
+                        except Exception:
+                            pass
                 gt2 = sum(v[1] for v in shf.values()); gb2 = sum(v[0] for v in shf.values())
                 ml = [f"💰 ยอดวันนี้ ({today_str})", "─"*16]
                 for kk, lab in labs:
@@ -2229,7 +2242,10 @@ def line_webhook():
                     ml.append(f"{lab}: {ts2:,.0f} ฿ ({bc2} บิล)")
                 ml.append("─"*16)
                 ml.append(f"รวม: {gt2:,.0f} ฿ ({gb2} บิล)")
-                ml.append("(ยอด ณ ตอนนี้ ยังไม่รวมโต๊ะที่ยังเล่นอยู่)")
+                if pend_count_today > 0:
+                    ml.append(f"⏳ ยอดรอชำระ (ยังเล่นอยู่ {pend_count_today} โต๊ะ): {pend_total_today:,.0f} ฿ (ยังไม่รวมในยอดด้านบน)")
+                else:
+                    ml.append("(ยอด ณ ตอนนี้ ยังไม่รวมโต๊ะที่ยังเล่นอยู่)")
                 reply_msg(reply_token, line_token, "\n".join(ml), show_menu=False)
                 continue
             if text == "พนักงานวันนี้":
