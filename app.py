@@ -606,7 +606,7 @@ def manage_permissions():
 def get_tables():
     try:
         conn  = get_db_connection()
-        tabs  = conn.execute("SELECT * FROM tables_config").fetchall()
+        tabs  = conn.execute("SELECT * FROM tables_config ORDER BY id").fetchall()
         rates = conn.execute("SELECT * FROM rate_settings").fetchall()
         try:
             discounts = conn.execute("SELECT * FROM discount_periods ORDER BY id").fetchall()
