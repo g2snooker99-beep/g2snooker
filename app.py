@@ -987,7 +987,7 @@ def stock_check_confirm(check_id):
     items = conn.execute("SELECT * FROM stock_check_items WHERE check_id=?", (check_id,)).fetchall()
     for it in items:
         if it['product_id']:
-            conn.execute("UPDATE inventory SET stock_qty=? WHERE id=?", (it['actual_qty'], it['product_id']))
+            conn.execute("UPDATE inventory SET stock_qty = stock_qty + ? WHERE id=?", (it['diff'], it['product_id']))
     now_iso = datetime.now().isoformat()
     conn.execute("UPDATE stock_checks SET status='confirmed', confirmed_by=?, confirmed_at=? WHERE id=?",
                  (confirmed_by, now_iso, check_id))
