@@ -1,7 +1,7 @@
 from flask import Flask, render_template, jsonify, request
 from database import get_db_connection, ALL_PERMISSIONS, SUPER_ROLES, init_db, IS_PG
 from datetime import datetime, timedelta, timezone
-import math, json, os
+import math, json, os, threading
 
 TZ_OFFSET = timedelta(hours=7)  # UTC+7 Thailand
 
@@ -805,7 +805,7 @@ def checkout():
     conn.commit(); conn.close()
     snap=list(sess['orders']); tsnap=sess['start'].isoformat() if sess['start'] else None
     active_sessions.pop(tid); delete_session(tid)
-    send_relay(tid, 'off')
+    threading.Thread(target=send_relay, args=(tid, 'off'), daemon=True).start()
     try:
         th_start = (datetime.fromisoformat(tsnap) + TZ_OFFSET).strftime('%H:%M') if tsnap else '-'
         th_end   = (end + TZ_OFFSET).strftime('%H:%M')
