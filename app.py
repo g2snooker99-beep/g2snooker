@@ -1703,6 +1703,85 @@ def get_bill_items(bid):
     items=conn.execute("SELECT * FROM bill_items WHERE bill_id=?",(bid,)).fetchall()
     conn.close(); return jsonify({"bill":dict(bill) if bill else {},"items":[dict(i) for i in items]})
 
+# ── BILL EDIT / CANCEL (แก้ไข/ยกเลิกบิลย้อนหลัง พร้อมปรับสต๊อกอัตโนมัติ) ──
+@app.route("/api/bills/<int:bid>/edit", methods=["POST"])
+def edit_bill(bid):
+    d = request.json or {}
+    new_items = d.get('items', [])
+    cashier = d.get('cashier', 'ไม่ระบุ')
+    conn = get_db_connection()
+    bill = conn.execute("SELECT * FROM bills WHERE id=?", (bid,)).fetchone()
+    if not bill:
+        conn.close()
+        return jsonify({"status":"error","msg":"ไม่พบบิลนี้"}),404
+    if bill['status'] == 'ยกเลิก':
+        conn.close()
+        return jsonify({"status":"error","msg":"บิลนี้ถูกยกเลิกไปแล้ว แก้ไขไม่ได้"}),400
+    old_items = conn.execute("SELECT * FROM bill_items WHERE bill_id=?", (bid,)).fetchall()
+    old_map = {i['id']: i for i in old_items}
+    change_log = []
+    for it in new_items:
+        iid = it.get('id')
+        old = old_map.get(iid)
+        if not old:
+            continue
+        new_qty = float(it.get('qty', old['qty']))
+        new_price = float(it.get('price', old['price']))
+        delta_qty = new_qty - old['qty']
+        if delta_qty != 0:
+            try:
+                conn.execute("UPDATE inventory SET stock_qty=stock_qty-? WHERE product_name=?", (delta_qty, old['name']))
+            except Exception as se:
+                print(f"[WARN] คืน/ตัดสต๊อกไม่สำเร็จ ({old['name']}): {se}")
+        if new_qty <= 0:
+            conn.execute("DELETE FROM bill_items WHERE id=?", (iid,))
+            change_log.append(f"ลบ {old['name']} x{old['qty']}")
+        else:
+            new_total = round(new_qty * new_price, 2)
+            conn.execute("UPDATE bill_items SET qty=?, price=?, total=? WHERE id=?", (new_qty, new_price, new_total, iid))
+            if new_qty != old['qty'] or new_price != old['price']:
+                change_log.append(f"{old['name']}: {old['qty']}x{old['price']}฿ -> {new_qty}x{new_price}฿")
+    remaining = conn.execute("SELECT * FROM bill_items WHERE bill_id=?", (bid,)).fetchall()
+    new_food_fee = sum(float(r['total'] or 0) for r in remaining)
+    old_total = float(bill['total'] or 0)
+    new_total = round(float(bill['time_fee'] or 0) + new_food_fee - float(bill['discount'] or 0), 2)
+    conn.execute("UPDATE bills SET food_fee=?, total=? WHERE id=?", (new_food_fee, new_total, bid))
+    conn.commit()
+    try:
+        detail = f"บิล {bill['bill_no']}: ยอดเดิม {old_total:,.2f}฿ -> {new_total:,.2f}฿" + ((" | " + "; ".join(change_log)) if change_log else "")
+        log_activity('แก้ไขบิล', bill['table_name'], detail, cashier)
+    except Exception as le:
+        print(f"[WARN] log_activity edit_bill: {le}")
+    conn.close()
+    return jsonify({"status":"success","new_total":new_total,"new_food_fee":new_food_fee})
+
+@app.route("/api/bills/<int:bid>/cancel", methods=["POST"])
+def cancel_bill(bid):
+    d = request.json or {}
+    cashier = d.get('cashier', 'ไม่ระบุ')
+    conn = get_db_connection()
+    bill = conn.execute("SELECT * FROM bills WHERE id=?", (bid,)).fetchone()
+    if not bill:
+        conn.close()
+        return jsonify({"status":"error","msg":"ไม่พบบิลนี้"}),404
+    if bill['status'] == 'ยกเลิก':
+        conn.close()
+        return jsonify({"status":"error","msg":"บิลนี้ถูกยกเลิกไปแล้ว"}),400
+    items = conn.execute("SELECT * FROM bill_items WHERE bill_id=?", (bid,)).fetchall()
+    for it in items:
+        try:
+            conn.execute("UPDATE inventory SET stock_qty=stock_qty+? WHERE product_name=?", (it['qty'], it['name']))
+        except Exception as se:
+            print(f"[WARN] คืนสต๊อกไม่สำเร็จ ({it['name']}): {se}")
+    conn.execute("UPDATE bills SET status='ยกเลิก' WHERE id=?", (bid,))
+    conn.commit()
+    try:
+        log_activity('ยกเลิกบิล', bill['table_name'], f"บิล {bill['bill_no']} ยอด {float(bill['total'] or 0):,.2f}฿", cashier)
+    except Exception as le:
+        print(f"[WARN] log_activity cancel_bill: {le}")
+    conn.close()
+    return jsonify({"status":"success"})
+
 # ── EXPENSES ─────────────────────────────────────────────────
 @app.route("/api/expenses", methods=["GET","POST"])
 def manage_expenses():
