@@ -4093,12 +4093,18 @@ function renderStockCheckTable(){
       + '<td>'+(it.category||'-')+'</td>'
       + '<td class="text-start">'+it.product_name+'</td>'
       + '<td>'+it.stock_qty+'</td>'
-      + '<td><input type="number" class="form-control custom-input text-center" style="max-width:100px;margin:auto" value="'+it._actual+'" oninput="updateStockActual('+it.id+',this.value)"></td>'
+      + '<td><div class="d-flex align-items-center gap-1" style="justify-content:center"><input type="number" id="stock-input-'+it.id+'" class="form-control custom-input text-center" style="max-width:90px" value="'+it._actual+'" oninput="updateStockActual('+it.id+',this.value)">'
+      + '<button type="button" class="btn btn-sm btn-outline-success" title="จำนวนตรงกัน" onclick="markStockMatch('+it.id+','+it.stock_qty+')"><i class="fa-solid fa-check"></i></button></div></td>'
       + '<td id="stock-diff-'+it.id+'">'+diffHtml+'</td>'
       + '</tr>';
   }).join('');
 }
 
+function markStockMatch(id, posQty){
+  const input = document.getElementById('stock-input-'+id);
+  if(input) input.value = posQty;
+  updateStockActual(id, posQty);
+}
 function updateStockActual(id, val){
   const it = stockCheckLiveData.find(x=>x.id===id);
   if(!it) return;
