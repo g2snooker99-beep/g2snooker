@@ -1726,7 +1726,7 @@ def edit_bill(bid):
         if not old:
             continue
         new_qty = float(it.get('qty', old['qty']))
-        new_price = float(it.get('price', old['price']))
+        new_price = float(old['price'])  # ราคาห้ามแก้เด็ดขาด ใช้ราคาเดิมเสมอ ไม่สนค่าที่ client ส่งมา
         delta_qty = new_qty - old['qty']
         if delta_qty != 0:
             try:
@@ -1739,8 +1739,8 @@ def edit_bill(bid):
         else:
             new_total = round(new_qty * new_price, 2)
             conn.execute("UPDATE bill_items SET qty=?, price=?, total=? WHERE id=?", (new_qty, new_price, new_total, iid))
-            if new_qty != old['qty'] or new_price != old['price']:
-                change_log.append(f"{old['name']}: {old['qty']}x{old['price']}฿ -> {new_qty}x{new_price}฿")
+            if new_qty != old['qty']:
+                change_log.append(f"{old['name']}: จำนวน {old['qty']} -> {new_qty}")
     remaining = conn.execute("SELECT * FROM bill_items WHERE bill_id=?", (bid,)).fetchall()
     new_food_fee = sum(float(r['total'] or 0) for r in remaining)
     old_total = float(bill['total'] or 0)
