@@ -256,6 +256,11 @@ h6.text-muted{color:#94a3b8 !important}
   </div>
 
   <div id="report-view" class="app-view">
+    <ul class="nav nav-tabs mb-3" style="border-color:rgba(255,255,255,0.1)">
+      <li class="nav-item"><button class="nav-link active text-warning" id="rpt-tab-shift-btn" onclick="showRptTab('shift')">📋 รายงานกะปัจจุบัน</button></li>
+      <li class="nav-item"><button class="nav-link text-warning" id="rpt-tab-range-btn" onclick="showRptTab('range');loadReportRange()">📅 สรุปย้อนหลัง</button></li>
+    </ul>
+    <div id="rpt-tab-shift">
     <div class="card-panel mb-3">
       <div class="row g-2 align-items-end">
         <div class="col-md-3"><label class="small text-muted">เลือกวันที่ (รอบกะ)</label><input type="date" id="rep-date-picker" class="form-control custom-input" onchange="loadReport()"></div>
@@ -283,8 +288,37 @@ h6.text-muted{color:#94a3b8 !important}
         <tbody id="daily-report-body"></tbody>
       </table>
     </div>
+    </div>
+    <div id="rpt-tab-range" style="display:none">
+      <div class="card-panel mb-3">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-2"><button class="btn btn-outline-info w-100 fw-bold" onclick="setReportRangeDays(7)">7 วัน</button></div>
+          <div class="col-md-2"><button class="btn btn-outline-info w-100 fw-bold" onclick="setReportRangeDays(15)">15 วัน</button></div>
+          <div class="col-md-2"><button class="btn btn-outline-info w-100 fw-bold" onclick="setReportRangeDays(30)">30 วัน</button></div>
+          <div class="col-md-3">
+            <label class="small text-muted">หรือเลือกเดือน</label>
+            <input type="month" id="rpt-range-month" class="form-control custom-input" onchange="setReportRangeMonth()">
+          </div>
+          <div class="col-md-3">
+            <label class="small text-muted">ช่วงที่เลือก</label>
+            <div id="rpt-range-label" class="fw-bold text-warning">7 วันล่าสุด</div>
+          </div>
+        </div>
+      </div>
+      <div class="row g-3 mb-3">
+        <div class="col-md-4"><div class="card-panel text-center border-top border-success border-3"><h6 class="text-muted">ยอดขายรวม</h6><h3 class="text-success" id="rpt-range-sales">0 ฿</h3></div></div>
+        <div class="col-md-4"><div class="card-panel text-center border-top border-danger border-3"><h6 class="text-muted">รายจ่ายรวม</h6><h3 class="text-danger" id="rpt-range-exp">0 ฿</h3></div></div>
+        <div class="col-md-4"><div class="card-panel text-center border-top border-info border-3"><h6 class="text-muted">คงเหลือสุทธิรวม</h6><h3 class="text-info" id="rpt-range-net">0 ฿</h3></div></div>
+      </div>
+      <div class="card-panel">
+        <h6 class="text-warning mb-3">แยกรายวัน</h6>
+        <table class="table table-premium text-center">
+          <thead><tr><th>วันที่</th><th>ยอดขาย (฿)</th><th>รายจ่าย (฿)</th><th>สุทธิ (฿)</th><th>จำนวนบิล</th></tr></thead>
+          <tbody id="rpt-range-table-body"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
-
   <div id="schedule-view" class="app-view">
     <ul class="nav nav-tabs mb-3" style="border-color:rgba(255,255,255,0.1)">
       <li class="nav-item"><button class="nav-link active text-warning" id="sc-tab-week-btn" onclick="showScTab('week')">📅 ตารางรายสัปดาห์</button></li>
@@ -4258,6 +4292,53 @@ async function cancelCurrentBill(){
       alert('เกิดข้อผิดพลาด: '+(d.msg||''));
     }
   }catch(e){ alert('เกิดข้อผิดพลาดในการยกเลิก'); console.error(e); }
+}
+
+// ─── REPORT RANGE (สรุปย้อนหลัง) ─────────────────────────────
+let _rptRangeStart = null, _rptRangeEnd = null;
+function showRptTab(t){
+  document.getElementById('rpt-tab-shift').style.display = (t==='shift')?'block':'none';
+  document.getElementById('rpt-tab-range').style.display = (t==='range')?'block':'none';
+  document.getElementById('rpt-tab-shift-btn').classList.toggle('active', t==='shift');
+  document.getElementById('rpt-tab-range-btn').classList.toggle('active', t==='range');
+}
+function _fmtDateInput(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function setReportRangeDays(n){
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - (n-1));
+  _rptRangeStart = _fmtDateInput(start);
+  _rptRangeEnd = _fmtDateInput(end);
+  document.getElementById('rpt-range-label').innerText = n+' วันล่าสุด';
+  document.getElementById('rpt-range-month').value = '';
+  loadReportRange();
+}
+function setReportRangeMonth(){
+  const val = document.getElementById('rpt-range-month').value; // "YYYY-MM"
+  if(!val) return;
+  const [y,m] = val.split('-').map(Number);
+  const start = new Date(y, m-1, 1);
+  const end = new Date(y, m, 0); // วันสุดท้ายของเดือน
+  _rptRangeStart = _fmtDateInput(start);
+  _rptRangeEnd = _fmtDateInput(end);
+  document.getElementById('rpt-range-label').innerText = 'เดือน '+m+'/'+y;
+  loadReportRange();
+}
+async function loadReportRange(){
+  if(!_rptRangeStart || !_rptRangeEnd){ setReportRangeDays(7); return; }
+  try{
+    const res = await fetch(`/api/report/range?start=${_rptRangeStart}&end=${_rptRangeEnd}`);
+    const d = await res.json();
+    if(d.status==='error'){ alert(d.msg||'เกิดข้อผิดพลาด'); return; }
+    document.getElementById('rpt-range-sales').innerText = d.total_sales.toLocaleString()+' ฿';
+    document.getElementById('rpt-range-exp').innerText = d.total_expenses.toLocaleString()+' ฿';
+    document.getElementById('rpt-range-net').innerText = d.total_net.toLocaleString()+' ฿';
+    document.getElementById('rpt-range-table-body').innerHTML = d.days.map(day=>
+      `<tr><td>${day.date}</td><td class="text-success">${day.sales.toLocaleString()}</td><td class="text-danger">${day.expenses.toLocaleString()}</td><td class="text-info fw-bold">${day.net.toLocaleString()}</td><td>${day.bill_count}</td></tr>`
+    ).join('') || '<tr><td colspan="5" class="text-muted">ไม่มีข้อมูล</td></tr>';
+  }catch(e){ alert('โหลดข้อมูลไม่สำเร็จ'); console.error(e); }
 }
 </script>
 

@@ -1782,6 +1782,63 @@ def cancel_bill(bid):
     conn.close()
     return jsonify({"status":"success"})
 
+# ── REPORT RANGE (สรุปย้อนหลังหลายวัน) ─────────────────────
+@app.route("/api/report/range")
+def report_range():
+    conn = get_db_connection()
+    r1 = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='day_cutoff_time'").fetchone()
+    ct = r1['setting_value'] if r1 else "06:00"
+    ch, cm = map(int, ct.split(':'))
+    start_str = request.args.get('start', '').strip()
+    end_str = request.args.get('end', '').strip()
+    if not start_str or not end_str:
+        conn.close()
+        return jsonify({"status": "error", "msg": "กรุณาระบุ start และ end"}), 400
+    try:
+        start_d = datetime.strptime(start_str, '%Y-%m-%d')
+        end_d = datetime.strptime(end_str, '%Y-%m-%d')
+    except ValueError:
+        conn.close()
+        return jsonify({"status": "error", "msg": "รูปแบบวันที่ไม่ถูกต้อง"}), 400
+    days = []
+    total_sales = 0.0
+    total_expenses = 0.0
+    cur = start_d
+    while cur <= end_d:
+        ss_th = cur.replace(hour=ch, minute=cm, second=0, microsecond=0)
+        se_th = ss_th + timedelta(days=1)
+        ss = ss_th - TZ_OFFSET
+        se = se_th - TZ_OFFSET
+        sstr = ss.strftime('%Y-%m-%d %H:%M:%S')
+        sestr = se.strftime('%Y-%m-%d %H:%M:%S')
+        bills = conn.execute(
+            "SELECT total FROM bills WHERE created_at>=? AND created_at<? AND status=?",
+            (sstr, sestr, "ชำระแล้ว")
+        ).fetchall()
+        day_sales = sum(float(b['total'] or 0) for b in bills)
+        exp_row = conn.execute(
+            "SELECT SUM(amount) FROM expenses WHERE created_at>=? AND created_at<?",
+            (sstr, sestr)
+        ).fetchone()
+        day_exp = float(exp_row[0]) if exp_row and exp_row[0] else 0.0
+        days.append({
+            "date": cur.strftime('%d/%m/%Y'),
+            "sales": round(day_sales, 2),
+            "expenses": round(day_exp, 2),
+            "net": round(day_sales - day_exp, 2),
+            "bill_count": len(bills),
+        })
+        total_sales += day_sales
+        total_expenses += day_exp
+        cur += timedelta(days=1)
+    conn.close()
+    return jsonify({
+        "days": days,
+        "total_sales": round(total_sales, 2),
+        "total_expenses": round(total_expenses, 2),
+        "total_net": round(total_sales - total_expenses, 2),
+    })
+
 # ── EXPENSES ─────────────────────────────────────────────────
 @app.route("/api/expenses", methods=["GET","POST"])
 def manage_expenses():
