@@ -4146,7 +4146,7 @@ async function loadStockCheckHistory(){
       const statusHtml = r.status==='confirmed'
         ? '<span class="text-success">✅ ปรับสต๊อกแล้ว</span>'
         : '<span class="text-warning">⏳ รอยืนยัน</span>';
-      const dt = new Date(r.created_at).toLocaleString('th-TH');
+      const dt = new Date(r.created_at + (r.created_at.includes('Z')?'':'Z')).toLocaleString('th-TH', {timeZone:'Asia/Bangkok'});
       return '<tr>'
         + '<td>'+dt+'</td>'
         + '<td>'+r.checked_by+'</td>'
