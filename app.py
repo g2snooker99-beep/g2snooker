@@ -987,7 +987,11 @@ def stock_check_confirm(check_id):
     items = conn.execute("SELECT * FROM stock_check_items WHERE check_id=?", (check_id,)).fetchall()
     for it in items:
         if it['product_id']:
-            conn.execute("UPDATE inventory SET stock_qty = ? WHERE id=?", (it['actual_qty'], it['product_id']))
+            # แก้บัค: เดิมใช้ SET stock_qty = actual_qty (เขียนทับตรงๆ)
+            # ทำให้ยอดขายที่เกิดขึ้นระหว่างช่วงนับสต๊อก -> ยืนยัน หายไปจากสต๊อก
+            # เปลี่ยนเป็นคำนวณส่วนต่างแล้วบวก/ลบแทน ปลอดภัยกว่า ไม่ทับยอดขายที่เกิดขึ้นระหว่างรอยืนยัน
+            diff = it['actual_qty'] - it['pos_qty_at_check']
+            conn.execute("UPDATE inventory SET stock_qty = stock_qty + ? WHERE id=?", (diff, it['product_id']))
     now_iso = datetime.now().isoformat()
     conn.execute("UPDATE stock_checks SET status='confirmed', confirmed_by=?, confirmed_at=? WHERE id=?",
                  (confirmed_by, now_iso, check_id))
