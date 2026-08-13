@@ -4173,10 +4173,7 @@ async function viewStockCheckDetail(checkId){
       const diffHtml = it.diff===0 ? '<span class="text-success">0</span>'
         : it.diff<0 ? '<span class="text-danger">'+it.diff+'</span>'
         : '<span class="text-info">+'+it.diff+'</span>';
-      const hasCur = (it.current_stock_qty!==null && it.current_stock_qty!==undefined);
-      const curHtml = hasCur ? it.current_stock_qty : '-';
-      const projHtml = hasCur ? (it.current_stock_qty + it.diff) : '-';
-      return '<tr><td class="text-start">'+it.product_name+'</td><td>'+it.pos_qty_at_check+'</td><td>'+it.actual_qty+'</td><td>'+diffHtml+'</td><td class="text-warning">'+curHtml+'</td><td class="text-info">'+projHtml+'</td></tr>';
+      return '<tr><td class="text-start">'+it.product_name+'</td><td>'+it.pos_qty_at_check+'</td><td>'+it.actual_qty+'</td><td>'+diffHtml+'</td></tr>';
     }).join('');
     const btn = document.getElementById('stock-detail-confirm-btn');
     btn.style.display = (rd.check.status==='confirmed') ? 'none' : 'inline-block';
@@ -4388,7 +4385,7 @@ async function loadReportRange(){
       </div>
       <div class="modal-body">
         <table class="table table-premium text-center align-middle">
-          <thead><tr><th>สินค้า</th><th>จำนวนใน POS ตอนนับ</th><th>จำนวนนับจริง</th><th>ผลต่าง</th><th>สต๊อกปัจจุบัน (สด)</th><th>จะเหลือหลังยืนยัน</th></tr></thead>
+          <thead><tr><th>สินค้า</th><th>จำนวนใน POS ตอนนับ</th><th>จำนวนนับจริง</th><th>ผลต่าง</th></tr></thead>
           <tbody id="stock-detail-body"></tbody>
         </table>
       </div>

@@ -969,17 +969,8 @@ def stock_check_detail(check_id):
         conn.close()
         return jsonify({"status":"error","msg":"ไม่พบรอบเช็คสต๊อก"}),404
     items = conn.execute("SELECT * FROM stock_check_items WHERE check_id=? ORDER BY id", (check_id,)).fetchall()
-    items_out = []
-    for i in items:
-        di = dict(i)
-        cur = None
-        if di.get('product_id'):
-            inv = conn.execute("SELECT stock_qty FROM inventory WHERE id=?", (di['product_id'],)).fetchone()
-            cur = inv['stock_qty'] if inv else None
-        di['current_stock_qty'] = cur
-        items_out.append(di)
     conn.close()
-    return jsonify({"check": dict(head), "items": items_out})
+    return jsonify({"check": dict(head), "items":[dict(i) for i in items]})
 
 @app.route("/api/stock_check/<int:check_id>/confirm", methods=["POST"])
 def stock_check_confirm(check_id):
