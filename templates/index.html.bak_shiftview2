@@ -1430,7 +1430,6 @@ const ALL_PERMS=[
   {key:'permissions_manage',label:'จัดการสิทธิ์พนักงาน',       group:'👥 พนักงาน'},
   {key:'settings_manage',label:'ตั้งค่าระบบ (เรท / ตัดกะ)',      group:'⚙️ ระบบ'},
   {key:'shift_close',    label:'ส่งกะ / ปิดจอ',                 group:'⚙️ ระบบ'},
-  {key:'shift_view',     label:'ดูตารางงาน / ตารางกะ',          group:'👥 พนักงาน'},
 ];
 
 // ─── PERMISSIONS ─────────────────────────────────────────────
