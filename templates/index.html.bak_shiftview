@@ -1499,7 +1499,6 @@ function applyPermUI(){
   const map={
     'btn-pos':'table_open','btn-history':'bill_history','btn-inventory':'inventory_view',
     'btn-expense':'expense_add','btn-report':'report_view','btn-payroll':'payroll_manage',
-    'btn-schedule':'shift_view',
     'btn-settings':'settings_manage','btn-shift':'shift_close','btn-exchange':'exchange'
   };
   for(const[bid,pk] of Object.entries(map)){
@@ -1518,7 +1517,7 @@ function applyPermUI(){
 
 // ─── VIEW ────────────────────────────────────────────────────
 const PERM_MAP_VIEW={
-  'pos-view':'table_open','schedule-view':'shift_view','cancel-log-view':'table_cancel','history-view':'bill_history','inventory-view':'inventory_view',
+  'pos-view':'table_open','schedule-view':'payroll_manage','cancel-log-view':'table_cancel','history-view':'bill_history','inventory-view':'inventory_view',
   'expense-view':'expense_add','report-view':'report_view','payroll-view':'payroll_manage',
   'setting-view':'settings_manage'
 };

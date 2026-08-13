@@ -30,11 +30,10 @@ ALL_PERMISSIONS = [
     ('permissions_manage','จัดการสิทธิ์พนักงาน','พนักงาน'),
     ('settings_manage','ตั้งค่าระบบ (เรท / ตัดกะ)','ระบบ'),
     ('shift_close','ส่งกะ / ปิดจอ','ระบบ'),
-    ('shift_view','ดูตารางงาน / ตารางกะ','พนักงาน'),
 ]
 DEFAULT_STAFF_PERMISSIONS = [
     'table_open','order_remove','bill_history','bill_print',
-    'expense_add','expense_view','exchange','shift_close','shift_view',
+    'expense_add','expense_view','exchange','shift_close',
 ]
 SUPER_ROLES = ('admin','owner')
 
