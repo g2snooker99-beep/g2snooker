@@ -1004,29 +1004,12 @@ def stock_check_confirm(check_id):
     now_iso = datetime.now().isoformat()
     conn.execute("UPDATE stock_checks SET status='confirmed', confirmed_by=?, confirmed_at=? WHERE id=?",
                  (confirmed_by, now_iso, check_id))
-
-    # ── ปิดรอบเก่าที่ยัง "รอยืนยัน" ค้างอยู่ก่อนหน้ารอบนี้ ──
-    # ยึดผลตามรอบล่าสุด (check_id) เท่านั้น รอบเก่าแค่เปลี่ยนสถานะเป็นยืนยันแล้ว
-    # แต่ "ไม่" เอา diff ของรอบเก่ามาปรับสต๊อกซ้ำ (ถูกรอบล่าสุดแทนที่ไปแล้ว)
-    stale = conn.execute(
-        "SELECT id FROM stock_checks WHERE status='pending' AND id<>? AND created_at<=?",
-        (check_id, head['created_at'])
-    ).fetchall()
-    stale_ids = [s['id'] for s in stale]
-    for sid in stale_ids:
-        conn.execute(
-            "UPDATE stock_checks SET status='confirmed', confirmed_by=?, confirmed_at=? WHERE id=?",
-            (confirmed_by + f' (ปิดอัตโนมัติ ถูกแทนที่โดยรอบ #{check_id})', now_iso, sid)
-        )
-
     conn.commit(); conn.close()
     try:
         log_activity('ยืนยันปรับสต๊อก', '', f"ปรับสต๊อกตามรอบเช็ค #{check_id} ({len(items)} รายการ)", confirmed_by)
-        if stale_ids:
-            log_activity('ปิดรอบเช็คสต๊อกค้าง', '', f"ปิดอัตโนมัติ {len(stale_ids)} รอบเก่า (#{', #'.join(map(str,stale_ids))}) ถูกแทนที่โดยรอบ #{check_id}", confirmed_by)
     except Exception as le:
         print(f"[WARN] log_activity confirm stock: {le}")
-    return jsonify({"status":"success","adjusted_items":len(items),"auto_closed":stale_ids})
+    return jsonify({"status":"success","adjusted_items":len(items)})
 
 # ── TABLE NOTE ───────────────────────────────────────────────
 @app.route("/api/table/note", methods=["POST"])
