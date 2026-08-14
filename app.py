@@ -1459,6 +1459,10 @@ def update_leave_request(lid):
                 ON CONFLICT(emp_name,work_date) DO UPDATE SET status='leave',note=EXCLUDED.note""",
                 (req['emp_name'], req['leave_date'],
                  f"ลางาน: {req['reason']} (อนุมัติโดย {approved_by})"))
+            # เมื่ออนุมัติลาแล้ว ต้องลบกะที่ตั้งไว้ล่วงหน้าออกจากตารางเวรของวันนั้นด้วย
+            # ไม่เช่นนั้นกะจะยังค้างโชว์ในตารางจัดเวรทั้งที่อนุมัติลาไปแล้ว
+            conn.execute("DELETE FROM work_schedule WHERE emp_name=? AND work_date=?",
+                (req['emp_name'], req['leave_date']))
         conn.execute("UPDATE leave_requests SET status=?, approved_by=? WHERE id=?",
             (status, approved_by, lid))
         conn.commit()
@@ -2700,6 +2704,9 @@ def line_webhook():
                                 (approver["name"],req["id"]))
                             conn.execute("INSERT INTO payroll_daily (emp_name,work_date,status,is_late,ot_hours,note) VALUES (?,?,'leave',0,0,?) ON CONFLICT(emp_name,work_date) DO UPDATE SET status='leave',note=EXCLUDED.note",
                                 (req_name,req_date,f"ลางาน: {req['reason']} (อนุมัติโดย {approver['name']})"))
+                            # ลบกะที่ตั้งไว้ล่วงหน้าออกจากตารางเวร ไม่ให้ค้างโชว์หลังอนุมัติลา
+                            conn.execute("DELETE FROM work_schedule WHERE emp_name=? AND work_date=?",
+                                (req_name, req_date))
                             conn.commit()
                             try:
                                 tok = settings.get("line_checkin_token","").strip() or line_token
