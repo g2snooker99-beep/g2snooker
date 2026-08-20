@@ -3582,7 +3582,7 @@ function renderWeekGrid(week, nDays=7){
 
   let html=`<div style="overflow-x:auto"><table style="border-collapse:collapse;min-width:${Math.max(600,nDays*85+120)}px;width:100%;font-size:0.85rem">
   <thead><tr>
-    <th style="padding:12px;background:#111;position:sticky;left:0;z-index:2;min-width:120px;border-bottom:2px solid #333;color:#cbd5e1;">พนักงาน</th>`;
+    <th style="padding:12px;background:var(--glass);position:sticky;left:0;z-index:2;min-width:120px;border-bottom:2px solid rgba(128,128,128,0.25);color:inherit;">พนักงาน</th>`;
 
   dates.forEach(d=>{
     const ds=fmt(d);
@@ -3591,11 +3591,11 @@ function renderWeekGrid(week, nDays=7){
     const dayName=dayNames[d.getDay()];
     const isWeekend=d.getDay()===0||d.getDay()===6;
     html+=`<th style="padding:10px 4px;text-align:center;min-width:85px;
-      background:${isToday?'rgba(246,201,14,0.1)':isHol?'rgba(239,68,68,0.1)':isWeekend?'rgba(255,255,255,0.02)':'#111'};
-      border-bottom:${isToday?'2px solid #f6c90e':isHol?'2px solid #ef4444':'2px solid #333'};
-      border-left:1px solid rgba(255,255,255,0.05)">
-      <div style="font-weight:bold;font-size:0.9rem;color:${isToday?'#f6c90e':isHol?'#ef4444':isWeekend?'#94a3b8':'#e2e8f0'}">${dayName}</div>
-      <div style="font-size:0.75rem;color:${isToday?'#f6c90e':isHol?'#ef4444':'#64748b'}">${d.getDate()}/${d.getMonth()+1}</div>
+      background:${isToday?'rgba(246,201,14,0.15)':isHol?'rgba(239,68,68,0.15)':'var(--glass)'};
+      border-bottom:${isToday?'2px solid #f6c90e':isHol?'2px solid #ef4444':'2px solid rgba(128,128,128,0.25)'};
+      border-left:1px solid rgba(128,128,128,0.15)">
+      <div style="font-weight:bold;font-size:0.9rem;color:${isToday?'#f6c90e':isHol?'#ef4444':'inherit'}">${dayName}</div>
+      <div style="font-size:0.75rem;color:${isToday?'#f6c90e':isHol?'#ef4444':'inherit'};opacity:${isToday||isHol?'1':'0.65'}">${d.getDate()}/${d.getMonth()+1}</div>
     </th>`;
   });
   html+=`</tr></thead><tbody>`;
