@@ -99,10 +99,21 @@ h6.text-muted{color:#94a3b8 !important}
 (function(){
   var t = localStorage.getItem('g2theme') || 'gold';
   document.documentElement.setAttribute('data-theme', t);
-  document.addEventListener('DOMContentLoaded', function(){
+  function highlightSwatch(name){
     document.querySelectorAll('.theme-swatch').forEach(function(el){ el.classList.remove('active'); });
-    var el = document.getElementById('theme-' + t);
+    var el = document.getElementById('theme-' + name);
     if (el) el.classList.add('active');
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    highlightSwatch(t);
+    fetch('/api/settings').then(function(r){ return r.json(); }).then(function(data){
+      var serverTheme = data.ui_theme;
+      if (serverTheme && serverTheme !== t) {
+        document.documentElement.setAttribute('data-theme', serverTheme);
+        localStorage.setItem('g2theme', serverTheme);
+        highlightSwatch(serverTheme);
+      }
+    }).catch(function(e){ console.warn('theme sync failed', e); });
   });
 })();
 function setTheme(name){
@@ -111,6 +122,12 @@ function setTheme(name){
   document.querySelectorAll('.theme-swatch').forEach(function(el){ el.classList.remove('active'); });
   var el = document.getElementById('theme-' + name);
   if (el) el.classList.add('active');
+  var cashierName = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : 'ไม่ระบุ';
+  fetch('/api/settings?cashier=' + encodeURIComponent(cashierName), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ui_theme: name})
+  }).catch(function(e){ console.warn('theme save failed', e); });
 }
 </script>
 </head>
