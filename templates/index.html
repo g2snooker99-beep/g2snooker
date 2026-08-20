@@ -10,6 +10,14 @@
 <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#090c15;--glass:rgba(255,255,255,0.03);--gold:#d4af37;--cyan:#00f0ff}
+[data-theme="emerald"]{--bg:#04120c;--gold:#2ecc71;--cyan:#00e5ff}
+[data-theme="royal"]{--bg:#0d0620;--gold:#a855f7;--cyan:#f472b6}
+[data-theme="ruby"]{--bg:#170509;--gold:#e11d48;--cyan:#fbbf24}
+[data-theme="sapphire"]{--bg:#020c1b;--gold:#3b82f6;--cyan:#22d3ee}
+.theme-swatch{transition:0.15s}
+.theme-swatch>div{border:2px solid transparent}
+.theme-swatch.active>div{border-color:#fff;box-shadow:0 0 0 2px var(--gold)}
+.theme-swatch:hover>div{transform:scale(1.08)}
 body{background:var(--bg);color:white;font-family:'Prompt',sans-serif;overflow-x:hidden;font-size:0.9rem}
 .sidebar{width:250px;background:rgba(15,20,35,0.95);height:100vh;position:fixed;padding:20px 15px;border-right:1px solid rgba(255,255,255,0.05);z-index:100;overflow-y:auto}
 .main-content{margin-left:250px;padding:20px;width:calc(100% - 250px)}
@@ -62,6 +70,24 @@ h6.text-muted{color:#94a3b8 !important}
 @keyframes toastOut{from{opacity:1}to{opacity:0}}
 .order-toast.hide{animation:toastOut 0.25s ease-in forwards}
 </style>
+<script>
+(function(){
+  var t = localStorage.getItem('g2theme') || 'gold';
+  document.documentElement.setAttribute('data-theme', t);
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.theme-swatch').forEach(function(el){ el.classList.remove('active'); });
+    var el = document.getElementById('theme-' + t);
+    if (el) el.classList.add('active');
+  });
+})();
+function setTheme(name){
+  document.documentElement.setAttribute('data-theme', name);
+  localStorage.setItem('g2theme', name);
+  document.querySelectorAll('.theme-swatch').forEach(function(el){ el.classList.remove('active'); });
+  var el = document.getElementById('theme-' + name);
+  if (el) el.classList.add('active');
+}
+</script>
 </head>
 <body>
 
@@ -605,6 +631,31 @@ h6.text-muted{color:#94a3b8 !important}
       </div>
     </div>
 
+    <div class="card-panel mb-4" style="border-left:4px solid var(--gold)">
+      <h6 class="mb-3" style="color:var(--gold)"><i class="fa-solid fa-palette me-2"></i>ธีมสี</h6>
+      <div class="d-flex gap-4 flex-wrap">
+        <div class="theme-swatch" id="theme-gold" onclick="setTheme('gold')" style="cursor:pointer;text-align:center">
+          <div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#090c15,#d4af37)"></div>
+          <small class="d-block mt-1">ทอง</small>
+        </div>
+        <div class="theme-swatch" id="theme-emerald" onclick="setTheme('emerald')" style="cursor:pointer;text-align:center">
+          <div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#04120c,#2ecc71)"></div>
+          <small class="d-block mt-1">มรกต</small>
+        </div>
+        <div class="theme-swatch" id="theme-royal" onclick="setTheme('royal')" style="cursor:pointer;text-align:center">
+          <div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#0d0620,#a855f7)"></div>
+          <small class="d-block mt-1">ม่วงหลวง</small>
+        </div>
+        <div class="theme-swatch" id="theme-ruby" onclick="setTheme('ruby')" style="cursor:pointer;text-align:center">
+          <div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#170509,#e11d48)"></div>
+          <small class="d-block mt-1">ทับทิม</small>
+        </div>
+        <div class="theme-swatch" id="theme-sapphire" onclick="setTheme('sapphire')" style="cursor:pointer;text-align:center">
+          <div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#020c1b,#3b82f6)"></div>
+          <small class="d-block mt-1">ไพลิน</small>
+        </div>
+      </div>
+    </div>
     <div class="card-panel mb-4" style="border-left:4px solid var(--cyan)">
       <div class="card-panel mb-4" style="border-left:4px solid #f59e0b">
         <div class="d-flex justify-content-between align-items-center mb-3">
