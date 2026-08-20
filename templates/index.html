@@ -18,6 +18,31 @@
 .theme-swatch>div{border:2px solid transparent}
 .theme-swatch.active>div{border-color:#fff;box-shadow:0 0 0 2px var(--gold)}
 .theme-swatch:hover>div{transform:scale(1.08)}
+[data-theme="light"]{--bg:#f1f4f9;--glass:rgba(15,23,42,0.04);--gold:#b8860b;--cyan:#0891b2}
+[data-theme="light"] body{color:#1e293b}
+[data-theme="light"] .sidebar{background:rgba(255,255,255,0.95);border-right:1px solid rgba(15,23,42,0.08)}
+[data-theme="light"] .sidebar-btn{color:#475569}
+[data-theme="light"] .sidebar-btn:hover,[data-theme="light"] .sidebar-btn.active{background:rgba(184,134,11,0.1);color:var(--gold);border-left:4px solid var(--gold)}
+[data-theme="light"] .numpad-btn{background:rgba(15,23,42,0.04);border:1px solid rgba(15,23,42,0.12);color:#1e293b}
+[data-theme="light"] .numpad-btn:hover{background:var(--gold);color:#fff}
+[data-theme="light"] .card-panel{border:1px solid rgba(15,23,42,0.08);background:#fff}
+[data-theme="light"] .table-premium{color:#1e293b;background:rgba(15,23,42,0.02)}
+[data-theme="light"] .table-premium td{border-bottom:1px solid rgba(15,23,42,0.08)}
+[data-theme="light"] .table-card{background:#fff;border:1px solid rgba(15,23,42,0.08)}
+[data-theme="light"] .order-mini{background:rgba(15,23,42,0.03);border:1px solid rgba(15,23,42,0.08);color:#1e293b}
+[data-theme="light"] .order-row{border-bottom:1px solid rgba(15,23,42,0.06)}
+[data-theme="light"] .btn-xs{color:#1e293b;background:rgba(15,23,42,0.03);border:1px solid rgba(15,23,42,0.12)}
+[data-theme="light"] .modal-premium{background:#fff;color:#1e293b;border:1px solid rgba(15,23,42,0.1)}
+[data-theme="light"] .custom-input{background:#fff;color:#1e293b;border:1px solid rgba(15,23,42,0.15)}
+[data-theme="light"] .custom-input:focus{background:#fff;color:var(--gold)}
+[data-theme="light"] .cat-btn{background:rgba(15,23,42,0.04);border:1px solid rgba(15,23,42,0.12);color:#1e293b}
+[data-theme="light"] .menu-card{background:#fff;border:1px solid rgba(15,23,42,0.08);color:#1e293b}
+[data-theme="light"] .perm-group{background:rgba(15,23,42,0.02);border:1px solid rgba(15,23,42,0.1)}
+[data-theme="light"] .calc-row{background:rgba(15,23,42,0.03);color:#334155}
+[data-theme="light"] label{color:#475569!important}
+[data-theme="light"] .text-muted,[data-theme="light"] h6.text-muted{color:#64748b!important}
+[data-theme="light"] .login-overlay{background:rgba(255,255,255,0.9)}
+[data-theme="light"] .hamburger{color:#000}
 body{background:var(--bg);color:white;font-family:'Prompt',sans-serif;overflow-x:hidden;font-size:0.9rem}
 .sidebar{width:250px;background:rgba(15,20,35,0.95);height:100vh;position:fixed;padding:20px 15px;border-right:1px solid rgba(255,255,255,0.05);z-index:100;overflow-y:auto}
 .main-content{margin-left:250px;padding:20px;width:calc(100% - 250px)}
@@ -653,6 +678,10 @@ function setTheme(name){
         <div class="theme-swatch" id="theme-sapphire" onclick="setTheme('sapphire')" style="cursor:pointer;text-align:center">
           <div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#020c1b,#3b82f6)"></div>
           <small class="d-block mt-1">ไพลิน</small>
+        </div>
+        <div class="theme-swatch" id="theme-light" onclick="setTheme('light')" style="cursor:pointer;text-align:center">
+          <div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#f1f4f9,#b8860b);border:1px solid rgba(0,0,0,0.15)"></div>
+          <small class="d-block mt-1">สว่าง</small>
         </div>
       </div>
     </div>
