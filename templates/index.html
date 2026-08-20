@@ -3608,11 +3608,11 @@ function renderWeekGrid(week, nDays=7){
         dColorIdx++;
     }
 
-    const rowBg=ei%2===0?'rgba(255,255,255,0.02)':'transparent';
+    const rowBg=ei%2===0?'var(--glass)':'transparent';
     
     // แถบชื่อพนักงานด้านซ้าย (ใช้สีพนักงาน)
     html+=`<tr style="background:${rowBg}">
-      <td style="padding:12px;font-weight:600;color:${empColor};position:sticky;left:0;background:${ei%2===0?'#151828':'#0d0d1a'};border-right:1px solid rgba(255,255,255,0.05);white-space:nowrap;border-bottom:1px solid rgba(255,255,255,0.05);border-left:4px solid ${empColor}">
+      <td style="padding:12px;font-weight:600;color:${empColor};position:sticky;left:0;background:${ei%2===0?'var(--glass)':'transparent'};border-right:1px solid rgba(128,128,128,0.15);white-space:nowrap;border-bottom:1px solid rgba(128,128,128,0.15);border-left:4px solid ${empColor}">
         ${emp.name}
       </td>`;
 
