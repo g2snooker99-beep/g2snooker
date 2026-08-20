@@ -639,6 +639,11 @@ def get_tables():
 @app.route("/api/start/<int:tid>", methods=["POST"])
 def start_table(tid):
     d = request.json or {}
+    if tid in active_sessions and active_sessions[tid].get('active'):
+        return jsonify({
+            "status": "error",
+            "msg": f"โต๊ะนี้มีบิลที่ยังเปิดอยู่ (เริ่มเมื่อ {active_sessions[tid]['start'].strftime('%H:%M')}) กรุณาปิดบิลเดิมก่อน"
+        }), 400
     price_mode = d.get('price_mode','') or ''
     if price_mode and price_mode not in PRICE_MODES: price_mode = ''
     cashier = d.get('cashier','ไม่ระบุ')
