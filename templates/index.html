@@ -1353,7 +1353,13 @@ function toggleSidebar(){
 
 // ─── OPEN TABLE (await properly so timer shows immediately) ──
 async function openTable(tid, priceMode){
-  await fetch('/api/start/'+tid, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({price_mode:priceMode||'',cashier:currentUser})});
+  const res = await fetch('/api/start/'+tid, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({price_mode:priceMode||'',cashier:currentUser})});
+  const data = await res.json();
+  if(!res.ok || data.status === 'error'){
+    showToast(data.msg || 'เปิดโต๊ะไม่สำเร็จ', true);
+    await updateGrid();
+    return;
+  }
   await updateGrid();
 }
 
