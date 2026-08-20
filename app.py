@@ -1173,70 +1173,6 @@ def manage_schedule():
 
 # ── AUTO SCHEDULE ─────────────────────────────────────────────
 # ── AUTO SCHEDULE (วันจันทร์ 10,16,18,02 / ศุกร์-เสาร์เบิ้ล 18) ────────────────────────
-@app.route("/api/schedule/auto", methods=["POST"])
-def auto_schedule():
-    """จัดตาราง 4 คน: ทำ 6 หยุด 1 วันจันทร์บังคับกะ 10,16,18,02 วันศุกร์-เสาร์เบิ้ลกะค่ำ"""
-    d = request.json
-    week_start = d['week_start']
-    
-    conn = get_db_connection()
-    all_emps = [r['name'] for r in conn.execute("SELECT name FROM employees WHERE role!='owner' ORDER BY id").fetchall()]
-    shifts = conn.execute("SELECT * FROM work_shifts").fetchall()
-    
-    # 1. ค้นหากะจากเวลาเริ่มต้น (10, 16, 18, 02) -> เลิกใช้ 14.00
-    s_10 = next((s['id'] for s in shifts if s['start_time'] == '10:00'), None)
-    s_16 = next((s['id'] for s in shifts if s['start_time'] == '16:00'), None)
-    s_18 = next((s['id'] for s in shifts if s['start_time'] == '18:00'), None)
-    s_02 = next((s['id'] for s in shifts if s['start_time'] == '02:00'), None)
-    
-    if not (s_10 and s_16 and s_18 and s_02):
-        conn.close()
-        return jsonify({"status":"error", "msg":"กรุณาสร้างกะเวลา 10:00, 16:00, 18:00, 02:00 ให้ครบในเมนูจัดการกะงานก่อนครับ (ส่วนกะ 14:00 กดลบทิ้งได้เลย)"}), 400
-        
-    if len(all_emps) != 4:
-        conn.close()
-        return jsonify({"status":"error", "msg":f"ระบบนี้ออกแบบมาสำหรับ 4 คนเป๊ะๆ (ตอนนี้มี {len(all_emps)} คนในระบบ)"}), 400
-        
-    from datetime import datetime, timedelta
-    start_dt = datetime.strptime(week_start, '%Y-%m-%d')
-    week_num = start_dt.isocalendar()[1]
-    
-    # 2. หมุนเวียนบทบาท ทุกคนจะได้สลับกะและสลับวันหยุดในแต่ละสัปดาห์
-    offset = week_num % 4
-    roles = all_emps[offset:] + all_emps[:offset]
-    R1, R2, R3, R4 = roles[0], roles[1], roles[2], roles[3]
-    
-    # 3. โมเดลตารางงาน (รวม 24 กะ/สัปดาห์)
-    # วันหยุด: R1(อังคาร), R2(พุธ), R3(พฤหัส), R4(อาทิตย์)
-    template = {
-        0: [(R1, s_10), (R2, s_16), (R3, s_18), (R4, s_02)], # จันทร์ (10, 16, 18, 02)
-        1: [(R2, s_16), (R3, s_18), (R4, s_02)],             # อังคาร (R1 หยุด)
-        2: [(R3, s_16), (R4, s_18), (R1, s_02)],             # พุธ (R2 หยุด)
-        3: [(R4, s_16), (R1, s_18), (R2, s_02)],             # พฤหัส (R3 หยุด)
-        4: [(R1, s_16), (R2, s_18), (R3, s_18), (R4, s_02)], # ศุกร์ (เสริมคนกะ 18)
-        5: [(R2, s_16), (R3, s_18), (R4, s_18), (R1, s_02)], # เสาร์ (เสริมคนกะ 18)
-        6: [(R1, s_16), (R2, s_18), (R3, s_02)]              # อาทิตย์ (R4 หยุด)
-    }
-    
-    inserted = 0
-    for day_idx in range(7):
-        date_str = (start_dt + timedelta(days=day_idx)).strftime('%Y-%m-%d')
-        day_shifts = template[day_idx]
-        
-        for emp_name, shift_id in day_shifts:
-            try:
-                from database import IS_PG
-                if IS_PG:
-                    conn.execute("INSERT INTO work_schedule (emp_name,work_date,shift_id,note) VALUES (%s,%s,%s,'auto_v5') ON CONFLICT DO NOTHING", (emp_name, date_str, shift_id))
-                else:
-                    conn.execute("INSERT OR IGNORE INTO work_schedule (emp_name,work_date,shift_id,note) VALUES (?,?,?,'auto_v5')", (emp_name, date_str, shift_id))
-                inserted += 1
-            except: pass
-            
-    conn.commit(); conn.close()
-    return jsonify({"status":"success", "inserted":inserted, "summary":f"จัดตารางเรียบร้อย! จันทร์(10,16,18,02) และทุกคนได้หยุด 1 วัน"})
-
-# ── SHOP SCHEDULE (G2snooker rules) ──────────────────────────
 @app.route("/api/schedule/shop", methods=["POST"])
 def shop_schedule():
     """จัดตารางตามกฎร้าน G2snooker"""
@@ -1603,29 +1539,6 @@ def manage_holidays():
     conn.close(); return jsonify([dict(r) for r in rows])
 
 # ── EMP SHIFT RESTRICTIONS ────────────────────────────────────
-@app.route("/api/restrictions", methods=["GET","POST","DELETE"])
-def manage_restrictions():
-    conn = get_db_connection()
-    if IS_PG:
-        conn.execute("CREATE TABLE IF NOT EXISTS emp_shift_restrictions (id SERIAL PRIMARY KEY, emp_name TEXT, shift_id INTEGER, UNIQUE(emp_name, shift_id))")
-    else:
-        conn.execute("CREATE TABLE IF NOT EXISTS emp_shift_restrictions (id INTEGER PRIMARY KEY, emp_name TEXT, shift_id INTEGER, UNIQUE(emp_name, shift_id))")
-    conn.commit()
-    if request.method == "POST":
-        d = request.json
-        if IS_PG:
-            conn.execute("INSERT INTO emp_shift_restrictions (emp_name,shift_id) VALUES (?,?) ON CONFLICT DO NOTHING", (d['emp_name'],int(d['shift_id'])))
-        else:
-            conn.execute("INSERT OR IGNORE INTO emp_shift_restrictions (emp_name,shift_id) VALUES (?,?)", (d['emp_name'],int(d['shift_id'])))
-        conn.commit(); conn.close(); return jsonify({"status":"success"})
-    if request.method == "DELETE":
-        d = request.json
-        conn.execute("DELETE FROM emp_shift_restrictions WHERE emp_name=? AND shift_id=?", (d['emp_name'],int(d['shift_id'])))
-        conn.commit(); conn.close(); return jsonify({"status":"success"})
-    rows = conn.execute("SELECT * FROM emp_shift_restrictions").fetchall()
-    conn.close(); return jsonify([dict(r) for r in rows])
-
-# ── CANCEL LOGS ──────────────────────────────────────────────
 @app.route("/api/cancel_logs")
 def get_cancel_logs():
     try:

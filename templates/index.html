@@ -504,9 +504,6 @@ function setTheme(name){
           <div class="col-md-2">
             <button class="btn btn-info w-100 fw-bold mt-4" onclick="loadWeekSchedule()">โหลด</button>
           </div>
-          <div class="col-md-3">
-            <button class="btn btn-purple w-100 fw-bold mt-4" style="background:#7c3aed;color:white;border:none" onclick="openAutoScheduleModal()">✨ จัดตารางอัตโนมัติ</button>
-          </div>
           <div class="col-md-2">
             <button class="btn w-100 fw-bold mt-4" style="background:#f6c90e;color:#1a1a2e;border:none" onclick="openShopScheduleModal()">🏠 จัดตารางร้าน G2</button>
           </div>
@@ -550,16 +547,6 @@ function setTheme(name){
               <thead><tr><th>วันที่</th><th>รายละเอียด</th><th></th></tr></thead>
               <tbody id="holiday-list-body"></tbody>
             </table>
-          </div>
-          <div class="card-panel">
-            <h6 class="text-warning mb-3">⛔ ข้อจำกัดพนักงาน-กะ</h6>
-            <p class="text-muted small mb-2">กำหนดว่าพนักงานคนไหนทำกะไหนไม่ได้</p>
-            <div class="row g-2 mb-3">
-              <div class="col-5"><select id="restr-emp" class="form-select custom-input"><option value="">-- พนักงาน --</option></select></div>
-              <div class="col-5"><select id="restr-shift" class="form-select custom-input"><option value="">-- กะ --</option></select></div>
-              <div class="col-2"><button class="btn btn-warning w-100 fw-bold" onclick="addRestriction()">⛔</button></div>
-            </div>
-            <div id="restriction-list"></div>
           </div>
         </div>
       </div>
@@ -978,32 +965,6 @@ function setTheme(name){
           <span class="text-muted small ms-3">QR Code จะแสดงในใบเสร็จอัตโนมัติ</span>
         </div>
       </div>
-      <hr class="border-secondary mb-4">
-      <h6 class="text-success mb-3"><i class="fa-solid fa-user-clock me-2"></i>ตั้งค่าพนักงานสำหรับตารางกะอัตโนมัติ</h6>
-      <p class="text-muted small">ระบุชื่อพนักงานที่ตรงกับในระบบ ใช้สำหรับจัดตารางกะร้าน G2</p>
-      <div class="row g-3 mb-3">
-        <div class="col-md-4">
-          <label class="text-muted small">👔 ผู้จัดการ (กะ A / หยุดจันทร์)</label>
-          <input type="text" id="sc-emp-mgr" class="form-control custom-input" placeholder="โต๋">
-        </div>
-        <div class="col-md-4">
-          <label class="text-muted small">🔄 พนักงานหมุนเวียน 1 (D→C→B)</label>
-          <input type="text" id="sc-emp-rot1" class="form-control custom-input" placeholder="บิว">
-        </div>
-        <div class="col-md-4">
-          <label class="text-muted small">🔄 พนักงานหมุนเวียน 2 (D→C→B)</label>
-          <input type="text" id="sc-emp-rot2" class="form-control custom-input" placeholder="เฟริน์">
-        </div>
-        <div class="col-md-4">
-          <label class="text-muted small">🔄 พนักงานหมุนเวียน 3 (D→C→B)</label>
-          <input type="text" id="sc-emp-rot3" class="form-control custom-input" placeholder="นาเดียร์">
-        </div>
-        <div class="col-md-4">
-          <label class="text-muted small">📌 พนักงานกะ E (หยุดพฤหัส)</label>
-          <input type="text" id="sc-emp-fixed" class="form-control custom-input" placeholder="เจมส์">
-        </div>
-      </div>
-      <button class="btn btn-success fw-bold px-4 mb-4" onclick="saveScEmpSettings()"><i class="fa-solid fa-floppy-disk me-2"></i>บันทึกชื่อพนักงาน</button>
       <hr class="border-secondary mb-4">
       <h6 class="text-info mb-3"><i class="fa-solid fa-clock"></i> เวลาตัดยอดกะ / บิลประจำวัน</h6>
       <p class="text-muted small">บิลที่ออกก่อนเวลานี้จะนับเป็นยอดของวันก่อนหน้า</p>
@@ -1424,69 +1385,6 @@ function setTheme(name){
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js"></script>
 <div id="qr-generator" style="position:absolute;left:-9999px;top:-9999px"></div>
-
-<div class="modal fade" id="autoScheduleModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content modal-premium border-0 p-4">
-      <h5 class="text-warning mb-4">✨ ตั้งค่าจัดตารางอัตโนมัติ</h5>
-
-      <div class="card-panel mb-3" style="border-left:3px solid #7c3aed">
-        <h6 class="text-info mb-3">👥 จำนวนพนักงานต่อกะ</h6>
-        <div id="shift-count-settings"></div>
-      </div>
-
-      <div class="card-panel mb-3" style="border-left:3px solid #f59e0b">
-        <h6 class="text-warning mb-2">🔄 วันสลับหยุด (1 คน/วัน หมุนเวียน)</h6>
-        <p class="text-muted small mb-2">วันที่ติ๊ก → พนักงาน 1 คนสลับหยุด ส่วนที่เหลือทำกะที่กำหนด</p>
-        <div class="d-flex flex-wrap gap-3 mb-3">
-          <div class="form-check"><input class="form-check-input" type="checkbox" id="off-0"><label class="form-check-label text-white small" for="off-0">จันทร์</label></div>
-          <div class="form-check"><input class="form-check-input" type="checkbox" id="off-1"><label class="form-check-label text-white small" for="off-1">อังคาร</label></div>
-          <div class="form-check"><input class="form-check-input" type="checkbox" id="off-2"><label class="form-check-label text-white small" for="off-2">พุธ</label></div>
-          <div class="form-check"><input class="form-check-input" type="checkbox" id="off-3"><label class="form-check-label text-white small" for="off-3">พฤหัส</label></div>
-          <div class="form-check"><input class="form-check-input" type="checkbox" id="off-4"><label class="form-check-label text-white small" for="off-4">ศุกร์</label></div>
-          <div class="form-check"><input class="form-check-input" type="checkbox" id="off-5"><label class="form-check-label text-white small" for="off-5">เสาร์</label></div>
-          <div class="form-check"><input class="form-check-input" type="checkbox" id="off-6"><label class="form-check-label text-white small" for="off-6">อาทิตย์</label></div>
-        </div>
-        <div id="reduced-shift-section">
-          <label class="text-muted small mb-1">กะที่ใช้วันสลับหยุด (เลือกได้หลายกะ)</label>
-          <div id="reduced-shift-list" class="d-flex flex-wrap gap-2 mb-2"></div>
-          <small class="text-muted">ถ้าไม่เลือก = ใช้กะเดิมทั้งหมด</small>
-        </div>
-      </div>
-      <div class="card-panel mb-3" style="border-left:3px solid #06c755">
-        <h6 class="text-success mb-2">👤 วันหยุดเฉพาะบุคคล (วันที่)</h6>
-        <div id="emp-offday-list"></div>
-      </div>
-
-      <div class="card-panel mb-3" style="border-left:3px solid #10b981">
-        <h6 class="text-success mb-2">⚡ เงื่อนไขพิเศษ</h6>
-        <div class="form-check mb-2">
-          <input class="form-check-input" type="checkbox" id="cond-no-double-late" checked>
-          <label class="form-check-label text-white small" for="cond-no-double-late">ห้ามทำกะดึกติดกัน 2 วัน</label>
-        </div>
-        <div class="form-check mb-2">
-          <input class="form-check-input" type="checkbox" id="cond-rotate" checked>
-          <label class="form-check-label text-white small" for="cond-rotate">หมุนเวียนกะให้พนักงานทุกคนเท่ากัน</label>
-        </div>
-        <div class="form-check mb-2">
-          <input class="form-check-input" type="checkbox" id="cond-no-overwrite">
-          <label class="form-check-label text-white small" for="cond-no-overwrite">ไม่ทับข้อมูลที่บันทึกเองไว้แล้ว</label>
-        </div>
-      </div>
-
-      <div class="card-panel mb-4" style="border-left:3px solid #ef4444">
-        <h6 class="text-danger mb-2">🚫 ยกเว้นพนักงาน (ไม่นำเข้าระบบจัด)</h6>
-        <div id="exclude-emp-list" class="d-flex flex-wrap gap-2"></div>
-      </div>
-
-      <div class="d-flex gap-2">
-        <button class="btn fw-bold flex-fill py-2" style="background:#7c3aed;color:white" onclick="runAutoSchedule()">✨ จัดตารางเลย</button>
-        <button class="btn btn-outline-secondary flex-fill" data-bs-dismiss="modal">ยกเลิก</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 
 <div class="modal fade" id="shopScheduleModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
@@ -2703,11 +2601,6 @@ async function loadSettings(){
   if(document.getElementById('set-shop-name')) document.getElementById('set-shop-name').value=s.shop_name||'G2 SNOOKER';
   if(document.getElementById('set-shop-abbr')) document.getElementById('set-shop-abbr').value=s.shop_abbr||'';
   if(document.getElementById('set-floor-title')) document.getElementById('set-floor-title').value=s.floor_title||'';
-  if(document.getElementById('sc-emp-mgr')) document.getElementById('sc-emp-mgr').value=s.sc_emp_mgr||'โต๋';
-  if(document.getElementById('sc-emp-rot1')) document.getElementById('sc-emp-rot1').value=s.sc_emp_rot1||'บิว';
-  if(document.getElementById('sc-emp-rot2')) document.getElementById('sc-emp-rot2').value=s.sc_emp_rot2||'ใบเฟิร์น';
-  if(document.getElementById('sc-emp-rot3')) document.getElementById('sc-emp-rot3').value=s.sc_emp_rot3||'นาเดียร์';
-  if(document.getElementById('sc-emp-fixed')) document.getElementById('sc-emp-fixed').value=s.sc_emp_fixed||'เนย';
   if(document.getElementById('set-shop-subtitle')) document.getElementById('set-shop-subtitle').value=s.shop_subtitle||'ระบบ POS Enterprise';
   if(document.getElementById('set-shop-qr')) document.getElementById('set-shop-qr').value=s.shop_qr_url||'';
   localStorage.setItem('shop_name',s.shop_name||'G2 SNOOKER');
@@ -2991,17 +2884,6 @@ async function testTelegram(){
 }
 
 
-async function saveScEmpSettings(){
-  const data = {
-    sc_emp_mgr:   document.getElementById('sc-emp-mgr').value.trim(),
-    sc_emp_rot1:  document.getElementById('sc-emp-rot1').value.trim(),
-    sc_emp_rot2:  document.getElementById('sc-emp-rot2').value.trim(),
-    sc_emp_rot3:  document.getElementById('sc-emp-rot3').value.trim(),
-    sc_emp_fixed: document.getElementById('sc-emp-fixed').value.trim(),
-  };
-  await fetch('/api/settings?cashier='+encodeURIComponent(currentUser),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-  alert('✅ บันทึกชื่อพนักงานสำเร็จ');
-}
 async function saveShopInfo(){
   const name=document.getElementById('set-shop-name').value.trim()||'G2 SNOOKER';
   const sub=document.getElementById('set-shop-subtitle').value.trim()||'ระบบ POS Enterprise';
@@ -3893,94 +3775,6 @@ async function runShopSchedule(){
   }
 }
 // ─── AUTO SCHEDULE MODAL ─────────────────────────────────────
-async function openAutoScheduleModal(){
-  if(!_shifts.length){const r=await fetch('/api/shifts');_shifts=await r.json();}
-  if(!_scEmps.length){const r=await fetch('/api/employees');_scEmps=(await r.json()).filter(e=>e.role!=='owner');}
-  // Render shift count inputs
-  document.getElementById('shift-count-settings').innerHTML=_shifts.map(s=>`
-    <div class="d-flex align-items-center gap-3 mb-2">
-      <span class="text-white small" style="min-width:120px">${s.shift_name} (${s.start_time}-${s.end_time})</span>
-      <input type="number" id="shift-count-${s.id}" class="form-control custom-input" style="width:70px" value="1" min="1" max="${_scEmps.length}">
-      <span class="text-muted small">คน/วัน</span>
-    </div>`).join('') || '<p class="text-muted small">ยังไม่มีกะงาน กรุณาสร้างกะก่อน</p>';
-  // Render exclude emp checkboxes
-  const safeId=n=>n.replace(/[^a-zA-Zก-๙]/g,'_');
-  document.getElementById('exclude-emp-list').innerHTML=_scEmps.map(e=>`
-    <div class="form-check me-3">
-      <input class="form-check-input" type="checkbox" id="exc-emp-${safeId(e.name)}">
-      <label class="form-check-label text-white small">${e.name}</label>
-    </div>`).join('');
-  // render reduced shift checkboxes
-  if(document.getElementById('reduced-shift-list')){
-    document.getElementById('reduced-shift-list').innerHTML=_shifts.map(s=>`
-      <div class="form-check">
-        <input class="form-check-input" type="checkbox" id="rs-${s.id}" style="accent-color:${s.color}">
-        <label class="form-check-label text-white small" for="rs-${s.id}"
-          style="background:${s.color};padding:2px 6px;border-radius:4px">${s.shift_name}</label>
-      </div>`).join('');
-  }
-  // render per-emp off day inputs
-  if(document.getElementById('emp-offday-list')){
-    document.getElementById('emp-offday-list').innerHTML=_scEmps.map(e=>`
-      <div class="d-flex align-items-center gap-2 mb-2">
-        <span class="text-info small" style="min-width:80px">${e.name}</span>
-        <input type="text" id="emp-off-${safeId(e.name)}" class="form-control custom-input form-control-sm"
-          placeholder="วันที่หยุด เช่น 2026-04-07,2026-04-14" style="font-size:0.75rem">
-      </div>`).join('');
-  }
-  bootstrap.Modal.getOrCreateInstance(document.getElementById('autoScheduleModal')).show();
-}
-
-async function runAutoSchedule(){
-  const week=document.getElementById('sc-week')?.value||getMonday();
-  // Collect settings
-  const shiftCounts={};
-  _shifts.forEach(s=>{
-    shiftCounts[s.id]=parseInt(document.getElementById('shift-count-'+s.id)?.value||1);
-  });
-  const offDays=[0,1,2,3,4,5,6].filter(i=>document.getElementById('off-'+i)?.checked);
-  const reducedShifts=_shifts.filter(s=>document.getElementById('rs-'+s.id)?.checked).map(s=>s.id);
-  const noDoubleLate=document.getElementById('cond-no-double-late')?.checked||false;
-  const rotate=document.getElementById('cond-rotate')?.checked||true;
-  const noOverwrite=document.getElementById('cond-no-overwrite')?.checked||false;
-  const excludeEmps=_scEmps.filter(e=>document.getElementById('exc-emp-'+e.name.replace(/[^a-zA-Zก-๙]/g,'_'))?.checked).map(e=>e.name);
-  // วันหยุดรายบุคคล
-  const empOffDays={};
-  _scEmps.forEach(e=>{
-    const val=document.getElementById('emp-off-'+e.name.replace(/[^a-zA-Zก-๙]/g,'_'))?.value||'';
-    if(val.trim()) empOffDays[e.name]=val.split(',').map(d=>d.trim()).filter(Boolean);
-  });
-  const nDays=parseInt(document.getElementById('sc-days')?.value||30);
-
-  bootstrap.Modal.getOrCreateInstance(document.getElementById('autoScheduleModal')).hide();
-
-  const r=await fetch('/api/schedule/auto',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      week_start:week, days:nDays,
-      shift_counts:shiftCounts,
-      rotate_off_days:offDays,
-      reduced_shifts:reducedShifts,
-      emp_off_days:empOffDays,
-      no_double_late:noDoubleLate,
-      rotate:rotate,
-      no_overwrite:noOverwrite,
-      exclude_emps:excludeEmps
-    })});
-  const d=await r.json();
-  if(r.ok) alert(`✅ จัดตารางสำเร็จ ${d.inserted} รายการ\n${d.summary||''}`);
-  else alert('❌ '+(d.msg||'เกิดข้อผิดพลาด'));
-  loadWeekSchedule();
-}
-
-async function autoSchedule(){
-  const week=document.getElementById('sc-week')?.value||getMonday();
-  if(!confirm(`จัดตารางอัตโนมัติสัปดาห์ ${week}?\nระบบจะหมุนเวียนพนักงาน ไม่ทับข้อมูลที่มีอยู่`))return;
-  const r=await fetch('/api/schedule/auto',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({week_start:week,days:7})});
-  const d=await r.json();
-  if(r.ok){alert(`✅ จัดตารางสำเร็จ ${d.inserted} รายการ`);loadWeekSchedule();}
-  else alert('❌ '+d.msg);
-}
 async function clearWeekSchedule(){
   const week=document.getElementById('sc-week')?.value||todayStr();
   const nDays=parseInt(document.getElementById('sc-days')?.value||7);
@@ -4017,33 +3811,6 @@ async function deleteHoliday(date){
   loadHolidayList();
 }
 
-// ─── RESTRICTIONS ─────────────────────────────────────────────
-async function loadRestrictions(){
-  const r=await fetch('/api/restrictions'); _restrictions=await r.json();
-  // Populate dropdowns
-  const allEmps=(await (await fetch('/api/employees')).json()).filter(e=>e.role!=='owner');
-  document.getElementById('restr-emp').innerHTML='<option value="">-- พนักงาน --</option>'+allEmps.map(e=>`<option value="${e.name}">${e.name}</option>`).join('');
-  document.getElementById('restr-shift').innerHTML='<option value="">-- กะ --</option>'+_shifts.map(s=>`<option value="${s.id}">${s.shift_name}</option>`).join('');
-  // Show list
-  const grouped={};
-  _restrictions.forEach(r=>{if(!grouped[r.emp_name])grouped[r.emp_name]=[];grouped[r.emp_name].push(r);});
-  document.getElementById('restriction-list').innerHTML=Object.entries(grouped).map(([emp,rows])=>`
-    <div class="mb-2"><span class="text-info fw-bold small">${emp}:</span> ${rows.map(r=>{
-      const sh=_shifts.find(s=>s.id===r.shift_id);
-      return `<span class="badge bg-danger me-1">${sh?sh.shift_name:'กะ'+r.shift_id} <span style="cursor:pointer" onclick="deleteRestriction('${emp}',${r.shift_id})">✕</span></span>`;
-    }).join('')}</div>`).join('') || '<p class="text-muted small">ยังไม่มีข้อจำกัด</p>';
-}
-async function addRestriction(){
-  const emp=document.getElementById('restr-emp').value;
-  const sid=document.getElementById('restr-shift').value;
-  if(!emp||!sid){alert('เลือกพนักงานและกะ');return;}
-  await fetch('/api/restrictions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({emp_name:emp,shift_id:sid})});
-  loadRestrictions();
-}
-async function deleteRestriction(emp,sid){
-  await fetch('/api/restrictions',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({emp_name:emp,shift_id:sid})});
-  loadRestrictions();
-}
 
 // ─── EMPLOYEE FILTER ─────────────────────────────────────────
 async function loadEmpFilter(){
@@ -4067,8 +3834,6 @@ function applyEmpFilter(){
   });
   // บันทึกลง localStorage
   localStorage.setItem('sc_selected_emps', JSON.stringify([..._selectedEmps]));
-  bootstrap.Modal.getOrCreateInstance && document.getElementById('autoScheduleModal') &&
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('autoScheduleModal')).hide();
   showScTab('week');
   loadWeekSchedule();
   alert('✅ บันทึกการเลือกพนักงานสำเร็จ');
